@@ -1,0 +1,239 @@
+﻿<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="theme-color" content="#102a24">
+  <title>LevFin — Levantamento Financeiro</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <main class="shell">
+    <!-- Topbar -->
+    <header class="topbar">
+      <div class="brand">
+        <div class="brand-mark">LF</div>
+        <div>
+          <div class="brand-name">LevFin <span class="badge-pro">Brasil</span></div>
+          <div class="brand-caption">Controle de Levantamentos Financeiros Diários</div>
+        </div>
+      </div>
+      <div class="topbar-right">
+        <div class="autosave-pill" id="autoSaveIndicator">⚡ Rascunho sincronizado</div>
+        <div class="db-indicator" title="Status da base de dados IndexedDB">
+          <span class="db-dot" id="dbDot"></span>
+          <span id="dbStatus">Conectando...</span>
+        </div>
+        <button class="button small icon-only" id="themeToggle" type="button" title="Alternar Modo Escuro / Claro">🌓</button>
+      </div>
+    </header>
+
+    <!-- Page Heading -->
+    <section class="page-heading">
+      <div>
+        <h1>Levantamento Diário</h1>
+        <p class="subtitle">Organize saldos bancários, autorizações e remessas das suas empresas.</p>
+      </div>
+      <div class="actions">
+        <button class="button" id="newReportButton" type="button">＋ Novo Levantamento</button>
+        <button class="button" id="exportCsvButton" type="button" title="Exportar dados para Excel/Sheets">📊 Exportar Excel</button>
+        <button class="button primary" id="saveReportButton" type="button">💾 Salvar Levantamento</button>
+      </div>
+    </section>
+
+    <!-- Stat Cards Overview -->
+    <section class="overview" aria-label="Resumo do levantamento atual">
+      <article class="stat-card card-balance">
+        <div class="stat-label">Saldo Consolidado</div>
+        <div class="stat-value" id="overallBalance">R$ 0,00</div>
+        <div class="stat-note" id="balanceNote">Soma dos saldos atuais informados</div>
+      </article>
+      <article class="stat-card card-pending">
+        <div class="stat-label">Total a Autorizar</div>
+        <div class="stat-value" id="overallPending">R$ 0,00</div>
+        <div class="stat-note">Pagamentos em situação pendente</div>
+      </article>
+      <article class="stat-card card-forecast">
+        <div class="stat-label">Previsão de Saldo Final</div>
+        <div class="stat-value" id="overallForecast">R$ 0,00</div>
+        <div class="stat-note">Saldo consolidado menos saídas a autorizar</div>
+      </article>
+    </section>
+
+    <!-- Período de Referência -->
+    <section class="panel">
+      <div class="panel-heading">
+        <div>
+          <h2 class="panel-title">📅 Período do Levantamento</h2>
+          <p class="panel-description">Informe a data inicial, final e o horário de corte do levantamento.</p>
+        </div>
+      </div>
+      <div class="field-grid">
+        <div class="field">
+          <label for="startDate">Data Inicial</label>
+          <input id="startDate" type="date">
+        </div>
+        <div class="field">
+          <label for="endDate">Data Final</label>
+          <input id="endDate" type="date">
+        </div>
+        <div class="field">
+          <label for="referenceTime">Horário de Referência (Corte)</label>
+          <input id="referenceTime" type="time">
+        </div>
+      </div>
+    </section>
+
+    <!-- Empresas e Lançamentos -->
+    <section class="panel">
+      <div class="panel-heading">
+        <div>
+          <h2 class="panel-title">🏢 Lançamentos por Empresa</h2>
+          <p class="panel-description">Selecione a empresa, informe o saldo disponível e lance os pagamentos com status e remessa.</p>
+        </div>
+      </div>
+
+      <nav class="company-tabs-container">
+        <div class="company-tabs" id="companyTabs" aria-label="Selecionar empresa"></div>
+      </nav>
+
+      <div class="company-toolbar">
+        <div class="balance-box">
+          <label for="balanceInput">💰 Saldo Inicial / Atual (R$):</label>
+          <input id="balanceInput" type="number" step="0.01" placeholder="0,00">
+        </div>
+        <div class="search-filter-box">
+          <span class="search-icon">🔍</span>
+          <input id="searchPaymentsInput" type="text" placeholder="Filtrar lançamentos (descrição, valor...)">
+        </div>
+      </div>
+
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th style="width: 14%;">Vencimento</th>
+              <th style="width: 13%;">Valor (R$)</th>
+              <th style="width: 32%;">Descrição / Fornecedor</th>
+              <th style="width: 15%;">Situação</th>
+              <th style="width: 19%;">Método no Banco / Remessa</th>
+              <th style="width: 7%; text-align: center;">Ações</th>
+            </tr>
+          </thead>
+          <tbody id="paymentRows"></tbody>
+        </table>
+        <div class="table-empty hidden" id="emptyPayments">Nenhum lançamento cadastrado para esta empresa. Adicione um lançamento ou cole um print.</div>
+      </div>
+
+      <div class="table-bottom-bar">
+        <div class="quick-batch-actions">
+          <button class="button small primary" id="addPaymentButton" type="button">＋ Adicionar Lançamento</button>
+          <button class="button small" id="openPrintDialogButton" type="button">📷 Colar print para importar</button>
+          <button class="button small" id="markAllAuthorizedButton" type="button" title="Marcar todos os lançamentos desta empresa como autorizados">⚡ Todos Autorizados</button>
+          <button class="button small" id="markAllPaidButton" type="button" title="Marcar todos os lançamentos desta empresa como pagos">✅ Todos Pagos</button>
+          <button class="button small danger" id="clearCompanyPaymentsButton" type="button" title="Remover todos os lançamentos da empresa atual">🗑️ Limpar</button>
+        </div>
+        <div class="company-totals" id="companyTotals"></div>
+      </div>
+
+      <!-- Importação via Print (OCR) com Suporte a Ctrl+V e Drag & Drop -->
+      <dialog class="print-dialog" id="printDialog" aria-labelledby="importTitle">
+        <div class="print-dialog-content" id="importDropZone">
+          <div class="print-dialog-heading">
+            <div>
+              <h3 class="import-heading" id="importTitle">Importar lançamentos de um print</h3>
+              <p class="import-description">Copie o print, clique na caixa abaixo e use Ctrl+V. Também pode arrastar a imagem ou selecionar um arquivo.</p>
+            </div>
+            <button class="button small print-dialog-close" id="closePrintDialogButton" type="button" aria-label="Fechar janela">Fechar</button>
+          </div>
+          <div class="print-paste-box" id="printPasteBox" tabindex="0" role="button" aria-label="Caixa para colar ou soltar o print">
+            <strong>Clique aqui e cole o print</strong>
+            <span class="import-description">Atalho: Ctrl+V</span>
+            <button class="button small" id="selectScreenshotButton" type="button">Selecionar arquivo de imagem</button>
+          </div>
+          <div class="import-controls">
+            <input class="hidden" id="screenshotInput" type="file" accept="image/*">
+            <span class="import-status" id="ocrStatus" aria-live="polite"></span>
+            <progress class="import-progress hidden" id="ocrProgress" max="1" value="0"></progress>
+          </div>
+          <div class="hidden" id="ocrReview">
+            <p class="import-warning">⚠️ <b>Atenção:</b> Revise os campos identificados antes de confirmar. Métodos de remessa bancária e datas de remessa devem ser selecionados abaixo.</p>
+            <div class="import-preview" id="ocrRows"></div>
+            <div class="import-actions">
+              <button class="button primary small" id="importRecognizedButton" type="button">Adicionar lançamentos à empresa</button>
+              <button class="button small" id="cancelImportButton" type="button">Cancelar</button>
+            </div>
+          </div>
+        </div>
+      </dialog>
+    </section>
+
+    <!-- Compartilhamento e WhatsApp -->
+    <section class="panel whatsapp-section">
+      <div class="panel-heading">
+        <div>
+          <h2 class="panel-title">📱 Compartilhar Resumo no WhatsApp</h2>
+          <p class="panel-description">Mensagem formatada exatamente conforme o modelo padrão pronto para envio.</p>
+        </div>
+        <div class="actions">
+          <button class="button" id="copyReportButton" type="button">📋 Copiar Mensagem</button>
+          <button class="button whatsapp" id="whatsappButton" type="button">💬 Abrir no WhatsApp ↗</button>
+          <button class="button" id="downloadReportButton" type="button">📄 Baixar .txt</button>
+        </div>
+      </div>
+      <div class="whatsapp-preview-container">
+        <div class="whatsapp-preview-header">
+          <span>Pré-visualização da mensagem padrão</span>
+          <span style="font-size: 11px;">Atualizada em tempo real</span>
+        </div>
+        <div class="whatsapp-bubble" id="whatsappPreview">Carregando visualização...</div>
+      </div>
+    </section>
+
+    <!-- Histórico de Levantamentos Salvos -->
+    <section class="panel" id="historySection">
+      <div class="panel-heading">
+        <div>
+          <h2 class="panel-title">🗂️ Levantamentos Salvos no Navegador</h2>
+          <p class="panel-description">Histórico armazenado com segurança no banco de dados local do seu navegador (IndexedDB).</p>
+        </div>
+      </div>
+      <div class="history-list" id="historyList">
+        <div class="empty-history">Carregando histórico...</div>
+      </div>
+    </section>
+
+    <!-- Configurações das Empresas e Backup / Restauração -->
+    <details class="custom-section" id="settingsDetails">
+      <summary>
+        <span>⚙️ Configurações das Empresas e Segurança dos Dados</span>
+        <span style="font-size: 12px; font-weight: 500; color: var(--muted);">Personalizar nomes e backup</span>
+      </summary>
+      <div class="custom-section-content">
+        <h4 style="margin: 0 0 10px 0; font-size: 14px;">Nomes das 5 Empresas</h4>
+        <p style="margin: 0 0 14px 0; font-size: 12px; color: var(--muted);">Altere os nomes padrão conforme as empresas do seu grupo:</p>
+        <div class="settings-grid" id="settingsGrid"></div>
+        <div style="margin-top: 14px; display: flex; gap: 8px; flex-wrap: wrap;">
+          <button class="button small primary" id="saveCompanyNamesBtn" type="button">Salvar Nomes</button>
+          <button class="button small" id="resetCompanyNamesBtn" type="button">Restaurar Nomes Padrão</button>
+        </div>
+
+        <hr style="border: none; border-top: 1px solid var(--line); margin: 24px 0;">
+
+        <h4 style="margin: 0 0 10px 0; font-size: 14px;">Cópia de Segurança (Backup Completo)</h4>
+        <p style="margin: 0 0 14px 0; font-size: 12px; color: var(--muted);">Exporte todos os relatórios salvos e configurações para um arquivo .json seguro, ou restaure em outro computador:</p>
+        <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+          <button class="button small" id="backupExportBtn" type="button">⬇️ Baixar Backup JSON</button>
+          <input class="hidden" id="backupImportInput" type="file" accept=".json">
+          <button class="button small" id="backupImportBtn" type="button">⬆️ Restaurar Backup JSON</button>
+        </div>
+      </div>
+    </details>
+  </main>
+
+  <!-- Notificação Toast -->
+  <div class="notice hidden" id="notice" role="status" aria-live="polite"></div>
+
+  <script src="app.js" defer></script>
+</body>
+</html>
