@@ -138,18 +138,68 @@
     .topbar-right {
       display: flex;
       align-items: center;
-      gap: 12px;
+      gap: 10px;
     }
-    .db-indicator {
-      display: flex;
+    .server-switch-group {
+      display: inline-flex;
       align-items: center;
-      gap: 8px;
-      color: var(--muted);
-      font-size: 12px;
-      padding: 6px 12px;
-      border-radius: 20px;
+      gap: 10px;
+      padding: 4px 10px 4px 12px;
+      border-radius: 24px;
       background: var(--paper);
       border: 1px solid var(--line);
+      font-size: 12.5px;
+      font-weight: 600;
+      color: var(--ink-secondary);
+      user-select: none;
+    }
+    .server-switch-label {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      cursor: pointer;
+    }
+    /* Estilo do Interruptor Switch Toggle (Liga / Desliga) */
+    .switch-toggle {
+      position: relative;
+      width: 36px;
+      height: 20px;
+      display: inline-block;
+      flex-shrink: 0;
+      margin: 0;
+      cursor: pointer;
+    }
+    .switch-toggle input {
+      opacity: 0;
+      width: 0;
+      height: 0;
+      position: absolute;
+    }
+    .switch-slider {
+      position: absolute;
+      cursor: pointer;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background-color: #798780;
+      transition: .25s ease;
+      border-radius: 20px;
+    }
+    .switch-slider:before {
+      position: absolute;
+      content: "";
+      height: 14px;
+      width: 14px;
+      left: 3px;
+      bottom: 3px;
+      background-color: white;
+      transition: .25s ease;
+      border-radius: 50%;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+    }
+    .switch-toggle input:checked + .switch-slider {
+      background-color: var(--green);
+    }
+    .switch-toggle input:checked + .switch-slider:before {
+      transform: translateX(16px);
     }
     .db-dot {
       width: 8px;
@@ -157,8 +207,35 @@
       border-radius: 50%;
       background: #d3a544;
       transition: background-color .3s ease;
+      flex-shrink: 0;
     }
-    .db-dot.ready { background: #31a16b; }
+    .db-dot.ready { background: #31a16b; box-shadow: 0 0 6px rgba(49, 161, 107, 0.6); }
+    .db-dot.offline { background: #d99a2b; box-shadow: 0 0 6px rgba(217, 154, 43, 0.4); }
+    .db-dot.error { background: #e0605a; box-shadow: 0 0 6px rgba(224, 96, 90, 0.6); }
+    .storage-settings {
+      display: grid;
+      grid-template-columns: minmax(220px, 1.2fr) minmax(220px, 1.5fr) minmax(170px, 1fr) auto;
+      align-items: end;
+      gap: 12px;
+      margin: -10px 0 22px;
+      padding: 16px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: var(--paper);
+      box-shadow: var(--shadow-sm);
+    }
+    .storage-actions-row {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    .storage-settings label { display: grid; gap: 5px; color: var(--muted); font-size: 12px; font-weight: 600; }
+    .storage-settings input, .storage-settings select {
+      min-width: 0; width: 100%; min-height: 38px; padding: 8px 10px;
+      color: var(--ink); background: var(--paper-elevated); border: 1px solid var(--line); border-radius: var(--radius-sm);
+    }
+    .storage-help { grid-column: 1 / -1; margin: 0; color: var(--muted); font-size: 12px; line-height: 1.5; }
+    @media (max-width: 820px) { .storage-settings { grid-template-columns: 1fr; } .storage-help { grid-column: auto; } }
     .autosave-pill {
       color: var(--muted);
       font-size: 11px;
@@ -740,6 +817,71 @@
       line-height: 1.5;
       border: 1px solid var(--amber-badge);
     }
+    .ocr-summary {
+      display: grid;
+      gap: 10px;
+      margin-top: 16px;
+      padding: 14px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius-sm);
+      background: var(--canvas-subtle);
+    }
+    .ocr-summary-heading {
+      display: flex;
+      justify-content: space-between;
+      gap: 16px;
+      flex-wrap: wrap;
+      color: var(--ink-secondary);
+      font-size: 12px;
+    }
+    .ocr-summary-heading > div {
+      display: grid;
+      gap: 2px;
+    }
+    .ocr-summary-heading span {
+      color: var(--muted);
+      font-size: 11px;
+    }
+    .ocr-summary-heading strong {
+      color: var(--ink);
+    }
+    .ocr-summary-dates {
+      display: grid;
+      gap: 6px;
+    }
+    .ocr-summary-date {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 7px 9px;
+      border: 1px solid var(--line-subtle);
+      border-radius: 6px;
+      background: var(--paper);
+      color: var(--muted);
+      font-size: 12px;
+    }
+    .ocr-summary-date strong {
+      color: var(--ink);
+      font-variant-numeric: tabular-nums;
+    }
+    .ocr-summary-empty {
+      color: var(--muted);
+      font-size: 12px;
+    }
+    .ocr-summary-totals {
+      display: flex;
+      gap: 16px;
+      flex-wrap: wrap;
+      padding-top: 10px;
+      border-top: 1px solid var(--line);
+      color: var(--muted);
+      font-size: 12px;
+    }
+    .ocr-summary-totals strong {
+      color: var(--ink);
+      font-variant-numeric: tabular-nums;
+    }
+    .ocr-summary-totals .money-negative strong { color: var(--red); }
 
     /* Seção de Compartilhamento e WhatsApp */
     .whatsapp-preview-container {
@@ -771,6 +913,39 @@
       max-height: 380px;
       overflow-y: auto;
       color: var(--ink);
+    }
+    .company-whatsapp-preview {
+      margin-top: 16px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius-sm);
+      background: var(--canvas-subtle);
+      overflow: hidden;
+    }
+    .company-whatsapp-preview-heading {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 12px;
+      padding: 12px 14px;
+      border-bottom: 1px solid var(--line);
+      background: var(--paper);
+    }
+    .company-whatsapp-preview-heading h3 {
+      margin: 0;
+      font-size: 13px;
+    }
+    .company-whatsapp-preview-heading p {
+      margin: 3px 0 0;
+      color: var(--muted);
+      font-size: 11px;
+    }
+    .company-whatsapp-preview-heading strong {
+      color: var(--ink-secondary);
+    }
+    .company-whatsapp-bubble {
+      max-height: 330px;
+      font-size: 12px;
+      line-height: 1.55;
     }
 
     /* Seção de Configuração de Empresas e Backups */
@@ -886,6 +1061,7 @@
       .field-grid { grid-template-columns: 1fr 1fr; }
     }
     @media (max-width: 820px) {
+      .company-whatsapp-preview-heading { align-items: stretch; flex-direction: column; }
       #paymentRows { display: grid; gap: 10px; }
       #paymentRows tr {
         position: relative;

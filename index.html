@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="pt-BR">
 <head>
   <meta charset="UTF-8">
@@ -20,13 +20,41 @@
       </div>
       <div class="topbar-right">
         <div class="autosave-pill" id="autoSaveIndicator">⚡ Rascunho sincronizado</div>
-        <div class="db-indicator" title="Status da base de dados IndexedDB">
+        <div class="server-switch-group" title="Ativar ou desativar uso do servidor (MySQL / Local)">
           <span class="db-dot" id="dbDot"></span>
           <span id="dbStatus">Conectando...</span>
+          <label class="switch-toggle" title="Ligar / Desligar conexão com o servidor">
+            <input type="checkbox" id="serverPowerSwitch" checked>
+            <span class="switch-slider"></span>
+          </label>
         </div>
+        <button class="button small icon-only" id="storageSettingsButton" type="button" title="Configurações do Servidor e Armazenamento">⚙️</button>
         <button class="button small icon-only" id="themeToggle" type="button" title="Alternar Modo Escuro / Claro">🌓</button>
       </div>
     </header>
+
+    <section class="storage-settings hidden" id="storageSettings" aria-label="Configuração de armazenamento">
+      <label class="storage-mode-field">Modo de Armazenamento
+        <select id="storageMode">
+          <option value="auto">Servidor MySQL (Automático: com cópia no navegador)</option>
+          <option value="server">Somente Servidor MySQL</option>
+          <option value="local">Somente Neste Navegador (Offline / Sem banco)</option>
+        </select>
+      </label>
+      <label class="storage-api-field">Endereço da API (PHP / Servidor)
+        <input id="apiUrlInput" type="text" placeholder="http://127.0.0.1/levfin-api.php ou ./api.php">
+      </label>
+      <label class="storage-token-field">Token de Acesso (opcional)
+        <input id="apiTokenInput" type="password" autocomplete="new-password" placeholder="Opcional">
+      </label>
+      <div class="storage-actions-row">
+        <button class="button small primary" id="testConnectionButton" type="button">🔄 Conectar / Testar</button>
+        <button class="button small" id="toggleConnectButton" type="button">🔌 Desconectar Servidor</button>
+      </div>
+      <p class="storage-help" id="storageHelpText">
+        💡 <b>Dica:</b> No modo <b>Automático</b>, o sistema usa o banco de dados MySQL sempre que o servidor estiver ligado. Caso esteja desconectado ou offline, o sistema continuará funcionando normalmente salvando no banco local do navegador (IndexedDB).
+      </p>
+    </section>
 
     <!-- Page Heading -->
     <section class="page-heading">
@@ -136,6 +164,17 @@
         <div class="company-totals" id="companyTotals"></div>
       </div>
 
+      <section class="company-whatsapp-preview" aria-label="Pré-visualização do WhatsApp da empresa">
+        <div class="company-whatsapp-preview-heading">
+          <div>
+            <h3>📱 Pré-visualização desta empresa</h3>
+            <p>Conteúdo da aba <strong id="companyPreviewName">atual</strong> no modelo do WhatsApp.</p>
+          </div>
+          <button class="button small" id="copyCompanyReportButton" type="button">📋 Copiar empresa</button>
+        </div>
+        <div class="whatsapp-bubble company-whatsapp-bubble" id="companyWhatsAppPreview">Preencha os dados do levantamento para visualizar a mensagem.</div>
+      </section>
+
       <!-- Importação via Print (OCR) com Suporte a Ctrl+V e Drag & Drop -->
       <dialog class="print-dialog" id="printDialog" aria-labelledby="importTitle">
         <div class="print-dialog-content" id="importDropZone">
@@ -159,6 +198,7 @@
           <div class="hidden" id="ocrReview">
             <p class="import-warning">⚠️ <b>Atenção:</b> Revise os campos identificados antes de confirmar. Métodos de remessa bancária e datas de remessa devem ser selecionados abaixo.</p>
             <div class="import-preview" id="ocrRows"></div>
+            <div class="ocr-summary" id="ocrSummary" aria-live="polite"></div>
             <div class="import-actions">
               <button class="button primary small" id="importRecognizedButton" type="button">Adicionar lançamentos à empresa</button>
               <button class="button small" id="cancelImportButton" type="button">Cancelar</button>
@@ -194,8 +234,8 @@
     <section class="panel" id="historySection">
       <div class="panel-heading">
         <div>
-          <h2 class="panel-title">🗂️ Levantamentos Salvos no Navegador</h2>
-          <p class="panel-description">Histórico armazenado com segurança no banco de dados local do seu navegador (IndexedDB).</p>
+          <h2 class="panel-title">🗂️ Histórico de Levantamentos Salvos</h2>
+          <p class="panel-description">Levantamentos armazenados no servidor MySQL e no banco de dados local do seu navegador (IndexedDB).</p>
         </div>
       </div>
       <div class="history-list" id="historyList">

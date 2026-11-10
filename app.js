@@ -7,6 +7,9 @@
       const DEFAULT_NAMES = ["ATHENAS", "BOA VISTA", "H&C", "K&K", "TAURUS"];
       const AUTOSAVE_KEY = "levfin_autosave_draft_v2";
       const THEME_KEY = "levfin_theme_v2";
+      const STORAGE_KEY = "levfin_storage_config_v1";
+
+      const DEFAULT_API_URL = "http://127.0.0.1/levfin-api.php";
 
       const $ = (id) => document.getElementById(id);
 
@@ -21,8 +24,109 @@
         ocrWorkerPromise: null,
         importRows: [],
         importCompanyIndex: 0,
-        filterText: ""
+        filterText: "",
+        storageMode: "auto", // "auto", "server", "local"
+        apiUrl: DEFAULT_API_URL,
+        apiToken: "",
+        serverConnected: false
       };
+
+      function loadStorageConfig() {
+        try {
+          const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || "{}");
+          state.storageMode = ["auto", "server", "local"].includes(saved.mode) ? saved.mode : "auto";
+          state.apiUrl = saved.apiUrl || DEFAULT_API_URL;
+          state.apiToken = saved.apiToken || "";
+        } catch (_) {
+          state.storageMode = "auto";
+          state.apiUrl = DEFAULT_API_URL;
+        }
+
+        if ($("storageMode")) $("storageMode").value = state.storageMode;
+        if ($("apiUrlInput")) $("apiUrlInput").value = state.apiUrl;
+        if ($("apiTokenInput")) $("apiTokenInput").value = state.apiToken;
+        updateStorageUiLabels();
+      }
+
+      function saveStorageConfig() {
+        state.storageMode = $("storageMode").value;
+        state.apiUrl = $("apiUrlInput").value.trim() || DEFAULT_API_URL;
+        state.apiToken = $("apiTokenInput").value.trim();
+        localStorage.setItem(STORAGE_KEY, JSON.stringify({ mode: state.storageMode, apiUrl: state.apiUrl, apiToken: state.apiToken }));
+        updateStorageUiLabels();
+      }
+
+      function updateStorageUiLabels() {
+        const toggleBtn = $("toggleConnectButton");
+        if (toggleBtn) {
+          if (state.storageMode === "local") {
+            toggleBtn.textContent = "⚡ Ativar Modo Servidor";
+          } else {
+            toggleBtn.textContent = "🔌 Usar Somente Offline (Local)";
+          }
+        }
+        const powerSwitch = $("serverPowerSwitch");
+        if (powerSwitch) {
+          powerSwitch.checked = state.storageMode !== "local";
+        }
+      }
+
+      function setStorageStatus(kind, text) {
+        if ($("dbStatus")) $("dbStatus").textContent = text;
+        const dot = $("dbDot");
+        if (dot) {
+          dot.classList.toggle("ready", kind === "server");
+          dot.classList.toggle("offline", kind === "local");
+          dot.classList.toggle("error", kind === "error");
+        }
+      }
+
+      function apiEndpoint(path) {
+        const base = state.apiUrl || DEFAULT_API_URL;
+        const url = new URL(base, document.baseURI);
+        url.searchParams.set("path", path);
+        return url.href;
+      }
+
+      async function apiRequest(path, method = "GET", body) {
+        const headers = { "Accept": "application/json" };
+        if (body !== undefined) headers["Content-Type"] = "application/json";
+        if (state.apiToken) headers.Authorization = `Bearer ${state.apiToken}`;
+        const response = await fetch(apiEndpoint(path), { method, headers, body: body === undefined ? undefined : JSON.stringify(body) });
+        if (!response.ok) {
+          let detail = "";
+          try { detail = (await response.json()).error || ""; } catch (_) {}
+          throw new Error(detail || `Servidor respondeu status ${response.status}.`);
+        }
+        return response.status === 204 ? null : response.json();
+      }
+
+      async function checkServerConnection(showMessage = false) {
+        if (state.storageMode === "local") {
+          state.serverConnected = false;
+          setStorageStatus("local", "Modo Local (Navegador)");
+          if (showMessage) notify("Modo 100% local ativo. Os dados ficam salvos apenas neste navegador.");
+          return false;
+        }
+
+        try {
+          await apiRequest("/health");
+          state.serverConnected = true;
+          setStorageStatus("server", "Servidor MySQL conectado");
+          if (showMessage) notify("Conexão com o banco de dados MySQL realizada com sucesso!");
+          return true;
+        } catch (error) {
+          state.serverConnected = false;
+          if (state.storageMode === "server") {
+            setStorageStatus("error", "Erro ao conectar no MySQL");
+            if (showMessage) notify(`Falha ao conectar no servidor MySQL: ${error.message}`, true);
+          } else {
+            setStorageStatus("offline", "Servidor offline · usando navegador");
+            if (showMessage) notify(`Servidor indisponível. Alternando para o banco local do navegador. (${error.message})`, true);
+          }
+          return false;
+        }
+      }
 
       function todayISO() {
         const now = new Date();
@@ -632,6 +736,7 @@
           </article>`;
         }).join("");
 
+        renderOcrSummary();
         $("ocrRows").querySelectorAll("[data-import-field]").forEach((input) => {
           const update = () => {
             const card = input.closest("[data-import-row]");
@@ -648,6 +753,7 @@
               if (hidesDate) state.importRows[index].remittanceDate = "";
               card.querySelector(`[data-remittance-date="${index}"]`).classList.toggle("hidden", hidesDate);
             }
+            renderOcrSummary();
           };
           input.addEventListener("input", update);
           input.addEventListener("change", update);
@@ -663,6 +769,48 @@
             });
           }
         });
+      }
+
+      function renderOcrSummary() {
+        const summary = $("ocrSummary");
+        if (!summary) return;
+
+        const groups = new Map();
+        let total = 0;
+        state.importRows.forEach((row) => {
+          const amount = Number(row.amount);
+          if (!Number.isFinite(amount) || amount < 0) return;
+          const date = row.dueDate || "";
+          if (!groups.has(date)) groups.set(date, 0);
+          groups.set(date, groups.get(date) + amount);
+          total += amount;
+        });
+
+        const company = state.draft && state.draft.companies[state.importCompanyIndex];
+        const bankBalance = Number(company && company.balance) || 0;
+        const difference = total - bankBalance;
+        const dateRows = [...groups.entries()]
+          .sort(([dateA], [dateB]) => dateA.localeCompare(dateB))
+          .map(([date, dateTotal]) => `
+            <div class="ocr-summary-date">
+              <span>${date ? `Vencimentos de ${escapeHTML(dateBR(date))}` : "Data não informada"}</span>
+              <strong>${formatCurrencyBR(dateTotal)}</strong>
+            </div>
+          `).join("");
+
+        summary.innerHTML = `
+          <div class="ocr-summary-heading">
+            <div>
+              <strong>Resumo da conferência por data</strong>
+              <span>Os valores são atualizados enquanto você corrige os campos.</span>
+            </div>
+            <span>Saldo do banco: <strong>${formatCurrencyBR(bankBalance)}</strong></span>
+          </div>
+          <div class="ocr-summary-dates">${dateRows || '<div class="ocr-summary-empty">Informe valores válidos para visualizar o resumo.</div>'}</div>
+          <div class="ocr-summary-totals">
+            <span>Total final <strong>${formatCurrencyBR(total)}</strong></span>
+            <span class="${difference < 0 ? "money-negative" : ""}">Total final - saldo do banco <strong>${formatCurrencyBR(difference)}</strong></span>
+          </div>`;
       }
 
       function importOcrRows() {
@@ -737,6 +885,7 @@
             state.activeCompany = Number(button.dataset.company);
             renderTabs();
             renderPayments();
+            updateCompanyWhatsAppPreview();
           });
         });
       }
@@ -912,30 +1061,62 @@
 
       /* Histórico de Levantamentos */
       async function renderHistory() {
-        const reports = await storeRequest("reports", "readonly", (store) => store.getAll());
+        let reports = [];
+        let serverErrorOccurred = false;
+
+        // Se estiver conectado ou no modo de tentar servidor, busca os relatórios do MySQL
+        if (state.serverConnected || state.storageMode === "server" || state.storageMode === "auto") {
+          try {
+            const serverReports = await apiRequest("/reports");
+            if (Array.isArray(serverReports)) {
+              reports.push(...serverReports.map((r) => ({ ...r, _storage: "server" })));
+            }
+          } catch (err) {
+            serverErrorOccurred = true;
+            console.warn("Falha ao buscar histórico do servidor MySQL:", err);
+          }
+        }
+
+        // Busca também os relatórios locais do IndexedDB (armazenamento offline)
+        try {
+          const localReports = await storeRequest("reports", "readonly", (store) => store.getAll());
+          if (Array.isArray(localReports)) {
+            // Evitar duplicar visualmente caso tenham o mesmo ID e storage
+            reports.push(...localReports.map((r) => ({ ...r, _storage: "local" })));
+          }
+        } catch (err) {
+          console.warn("Falha ao buscar histórico local IndexedDB:", err);
+        }
+
         reports.sort((a, b) => String(b.savedAt).localeCompare(String(a.savedAt)));
+
         $("historyList").innerHTML = reports.length ? reports.map((report) => {
           const label = `${dateBR(report.startDate)} a ${dateBR(report.endDate)}`;
           const dateSaved = new Date(report.savedAt).toLocaleString("pt-BR");
           const totalPayments = report.companies.reduce((sum, c) => sum + (c.payments ? c.payments.length : 0), 0);
+          const isServer = report._storage === "server";
+          const badgeHtml = isServer
+            ? `<span class="tab-badge" style="background: var(--green-badge); color: var(--green-badge-text); margin-left: 8px;">☁️ Servidor MySQL</span>`
+            : `<span class="tab-badge" style="background: var(--amber-badge); color: var(--amber-badge-text); margin-left: 8px;">💾 Navegador (Local)</span>`;
+
           return `
             <div class="history-item">
               <div>
-                <div class="history-title">📅 Levantamento: ${escapeHTML(label)}</div>
+                <div class="history-title">📅 Levantamento: ${escapeHTML(label)} ${badgeHtml}</div>
                 <div class="history-meta">Salvo em ${escapeHTML(dateSaved)} · ${report.companies.length} empresas · ${totalPayments} lançamento(s)</div>
               </div>
               <div class="history-actions">
-                <button class="button small" type="button" data-load="${report.id}">Abrir</button>
-                <button class="button small danger" type="button" data-delete="${report.id}">Excluir</button>
+                <button class="button small" type="button" data-load="${report.id}" data-storage="${report._storage || "local"}">Abrir</button>
+                <button class="button small danger" type="button" data-delete="${report.id}" data-storage="${report._storage || "local"}">Excluir</button>
               </div>
             </div>`;
-        }).join("") : '<div class="empty-history">Nenhum levantamento salvo ainda. Crie o primeiro acima e clique em "Salvar Levantamento".</div>';
+        }).join("") : `<div class="empty-history">${serverErrorOccurred ? "Servidor MySQL indisponível no momento. " : ""}Nenhum levantamento salvo ainda. Crie o primeiro acima e clique em 'Salvar Levantamento'.</div>`;
 
         $("historyList").querySelectorAll("[data-load]").forEach((button) => {
-          button.addEventListener("click", () => loadReport(Number(button.dataset.load)));
+          button.addEventListener("click", () => loadReport(Number(button.dataset.load), button.dataset.storage));
         });
         $("historyList").querySelectorAll("[data-delete]").forEach((button) => {
-          button.addEventListener("click", () => deleteReport(Number(button.dataset.delete)));
+          button.addEventListener("click", () => deleteReport(Number(button.dataset.delete), button.dataset.storage));
         });
       }
 
@@ -958,42 +1139,48 @@
       }
 
       async function saveReport() {
-        readMetadata();
-        validateDraft();
+        readMetadata(); validateDraft();
         const record = JSON.parse(JSON.stringify(state.draft));
-        record.savedAt = new Date().toISOString();
-        if (record.id === null) delete record.id;
-        const id = await storeRequest("reports", "readwrite", (store) => record.id ? store.put(record) : store.add(record));
-        state.draft.id = Number(id);
-        $("saveReportButton").textContent = "💾 Atualizar Levantamento";
-        $("dbStatus").textContent = "Conectado";
-        notify("Levantamento salvo com sucesso no navegador!");
-        await renderHistory();
-      }
-
-      async function loadReport(id) {
-        const report = await storeRequest("reports", "readonly", (store) => store.get(id));
-        if (!report) throw new Error("Este levantamento não foi encontrado no banco local.");
-        report.companies.forEach((company, index) => {
-          if (!company.name || company.name === `Empresa ${index + 1}`) company.name = state.companies[index] || DEFAULT_NAMES[index];
-        });
-        state.draft = report;
-        state.activeCompany = 0;
-        $("saveReportButton").textContent = "💾 Atualizar Levantamento";
-        render();
-        scheduleAutoSave();
-        notify("Levantamento carregado para consulta ou edição.");
-      }
-
-      async function deleteReport(id) {
-        if (!window.confirm("Deseja realmente excluir este levantamento salvo? Esta ação não pode ser desfeita.")) return;
-        await storeRequest("reports", "readwrite", (store) => store.delete(id));
-        if (state.draft.id === id) {
-          state.draft.id = null;
-          $("saveReportButton").textContent = "💾 Salvar Levantamento";
+        record.savedAt = new Date().toISOString(); delete record._storage;
+        if (state.serverConnected) {
+          try {
+            const saved = state.draft._storage === "server" && state.draft.id
+              ? await apiRequest(`/reports/${state.draft.id}`, "PUT", record)
+              : await apiRequest("/reports", "POST", (() => { const copy = { ...record }; delete copy.id; return copy; })());
+            state.draft.id = Number(saved.id); state.draft._storage = "server";
+          } catch (error) {
+            state.serverConnected = false; setStorageStatus("local", "Servidor indisponível · usando este navegador");
+            notify(`Servidor indisponível; salvando localmente. ${error.message}`, true);
+            if (state.draft._storage === "server") delete record.id;
+            state.draft.id = Number(await storeRequest("reports", "readwrite", (store) => record.id ? store.put(record) : store.add(record)));
+            state.draft._storage = "local";
+          }
+        } else {
+          if (state.draft._storage === "server") delete record.id;
+          state.draft.id = Number(await storeRequest("reports", "readwrite", (store) => record.id ? store.put(record) : store.add(record)));
+          state.draft._storage = "local";
         }
+        $("saveReportButton").textContent = "💾 Atualizar Levantamento";
+        notify(state.draft._storage === "server" ? "Levantamento salvo no servidor MySQL." : "Levantamento salvo neste navegador.");
         await renderHistory();
-        notify("Levantamento excluído com sucesso.");
+      }
+
+      async function loadReport(id, storage = "local") {
+        const report = storage === "server" ? await apiRequest(`/reports/${id}`) : await storeRequest("reports", "readonly", (store) => store.get(id));
+        if (!report) throw new Error("Levantamento não encontrado.");
+        report._storage = storage;
+        report.companies.forEach((company, index) => { if (!company.name || company.name === `Empresa ${index + 1}`) company.name = state.companies[index] || DEFAULT_NAMES[index]; });
+        state.draft = report; state.activeCompany = 0;
+        $("saveReportButton").textContent = "💾 Atualizar Levantamento";
+        render(); scheduleAutoSave(); notify("Levantamento carregado para consulta ou edição.");
+      }
+
+      async function deleteReport(id, storage = "local") {
+        if (!window.confirm("Deseja realmente excluir este levantamento salvo? Esta ação não pode ser desfeita.")) return;
+        if (storage === "server") await apiRequest(`/reports/${id}`, "DELETE");
+        else await storeRequest("reports", "readwrite", (store) => store.delete(id));
+        if (state.draft.id === id && state.draft._storage === storage) { state.draft.id = null; state.draft._storage = null; $("saveReportButton").textContent = "💾 Salvar Levantamento"; }
+        await renderHistory(); notify("Levantamento excluído com sucesso.");
       }
 
       /* Utilitários de Dias Úteis */
@@ -1025,7 +1212,126 @@
       }
 
       /* Formatação WhatsApp 100% Fiel ao Modelo Padrão */
+      const WHATSAPP_SEPARATOR = "────────────────────";
+
+      function getRelevantPaymentDates(company) {
+        const paymentDates = (company.payments || []).map((p) => p.dueDate).filter(Boolean);
+        if (!state.draft.startDate || !state.draft.endDate) return [...new Set(paymentDates)].sort();
+
+        const minDate = [state.draft.startDate, ...paymentDates].sort()[0];
+        const maxDate = [state.draft.endDate, ...paymentDates].sort().reverse()[0];
+        const dates = [];
+        const current = parseISODate(minDate);
+        const end = parseISODate(maxDate);
+        while (current <= end) {
+          dates.push(formatISODate(current));
+          current.setDate(current.getDate() + 1);
+        }
+        paymentDates.forEach((date) => {
+          if (!dates.includes(date)) dates.push(date);
+        });
+        return dates.sort();
+      }
+
+      function formatCompanyWhatsApp(company, index, includeHeading = true) {
+        const lines = [];
+        const totals = paymentTotals(company);
+        const companyName = company.name.trim() || `Empresa ${index + 1}`;
+        const balanceLabel = "Saldo Bradesco";
+        const balanceFormatted = formatCurrencyBR(Number(company.balance) || 0);
+        const totalPayable = formatCurrencyBR(totals.payable);
+        const finalBalance = (Number(company.balance) || 0) - totals.payable;
+
+        lines.push(`${index + 1}️⃣ *${companyName}*`);
+        lines.push(`💵 ${balanceLabel}: *${balanceFormatted}*`);
+        lines.push(`✴️ Soma total a Pagar: *${totalPayable}*`);
+        lines.push(`✅ Saldo Final Bradesco: *${formatCurrencyBR(finalBalance)}*`);
+        lines.push(WHATSAPP_SEPARATOR);
+        lines.push("");
+
+        const allDates = getRelevantPaymentDates(company);
+        if (allDates.length === 0) {
+          lines.push(`➡️ *PARA ${dateBR(state.draft.startDate)}:* 🆗 Sem movimentação.`);
+          lines.push(WHATSAPP_SEPARATOR);
+        } else {
+          allDates.forEach((date, dateIndex) => {
+            const paymentsForDate = (company.payments || []).filter((p) => p.dueDate === date);
+            if (dateIndex > 0) lines.push("");
+            if (paymentsForDate.length === 0) {
+              lines.push(`➡️ *PARA ${dateBR(date)}:* 🆗 Sem movimentação.`);
+              lines.push(WHATSAPP_SEPARATOR);
+              return;
+            }
+
+            const dayPayable = paymentsForDate.reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
+            const dayAuthorizedOrPaid = paymentsForDate
+              .filter((p) => p.status === "paid" || p.status === "authorized")
+              .reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
+            const dayPending = paymentsForDate
+              .filter((p) => p.status === "pending" || p.status === "confirmation")
+              .reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
+            const hasConfirmation = paymentsForDate.some((p) => p.status === "confirmation");
+
+            lines.push(`➡️ *PARA ${dateBR(date)}:*${hasConfirmation ? " _(CONFIRMAÇÃO DE PAGAMENTO)_" : ""}`);
+            lines.push(`💵 *Total a pagar:* *${formatCurrencyBR(dayPayable)}*`);
+            lines.push(`✳️ *Autorizado/Pago:* *${formatCurrencyBR(dayAuthorizedOrPaid)}*`);
+            if (dayPending > 0) lines.push(`✴️ *A autorizar:* *${formatCurrencyBR(dayPending)}*`);
+
+            const groups = {};
+            paymentsForDate.forEach((payment) => {
+              const type = paymentRemittanceType(payment);
+              const remittanceDate = (type === "standard" || type === "pix") ? paymentRemittanceDate(payment) : "";
+              const key = `${type}_${remittanceDate}`;
+              if (!groups[key]) groups[key] = { type, remittanceDate, items: [] };
+              groups[key].items.push(payment);
+            });
+
+            Object.values(groups).forEach((group) => {
+              const groupTotal = group.items.reduce((sum, payment) => sum + (Number(payment.amount) || 0), 0);
+              const typeLabel = group.type === "standard" ? "Remessa"
+                : group.type === "pix" ? "Remessa PIX"
+                  : group.type === "gestao" ? "Lançamento Gestão" : "Lançamento Manual";
+              const dateLabel = group.remittanceDate ? ` ${dateShort(group.remittanceDate)}` : "";
+              lines.push("");
+              lines.push(`✉️ *${typeLabel}${dateLabel}* — *${formatCurrencyBR(groupTotal)}*`);
+              group.items.forEach((payment) => {
+                lines.push(`✔️ ${formatCurrencyBR(Number(payment.amount) || 0)} | ${payment.description.trim() || "Sem descrição"}`);
+              });
+            });
+            lines.push(WHATSAPP_SEPARATOR);
+          });
+        }
+
+        if (allDates.length) lines.push("");
+        return includeHeading ? lines : lines.slice(2);
+      }
+
       function formatWhatsApp() {
+        if (!state.draft) return "";
+        readMetadata();
+        const start = dateBR(state.draft.startDate);
+        const end = dateBR(state.draft.endDate);
+        const time = state.draft.referenceTime ? ` até as ${state.draft.referenceTime}h` : "";
+        const lines = [`📊 *LEVANTAMENTO FINANCEIRO*`, `📅 Período: *${start} a ${end}${time}*`, ""];
+
+        state.draft.companies.forEach((company, index) => {
+          lines.push(...formatCompanyWhatsApp(company, index));
+          lines.push("");
+          lines.push(WHATSAPP_SEPARATOR);
+          lines.push("");
+        });
+
+        return lines.join("\n").trim();
+      }
+
+      function updateCompanyWhatsAppPreview() {
+        const company = state.draft && state.draft.companies[state.activeCompany];
+        if (!company) return;
+        $("companyPreviewName").textContent = company.name || `Empresa ${state.activeCompany + 1}`;
+        $("companyWhatsAppPreview").textContent = formatCompanyWhatsApp(company, state.activeCompany).join("\n");
+      }
+
+      function formatWhatsAppLegacy() {
         if (!state.draft) return "";
         readMetadata();
         const start = dateBR(state.draft.startDate);
@@ -1140,6 +1446,7 @@
       function updateWhatsAppPreview() {
         const text = formatWhatsApp();
         $("whatsappPreview").textContent = text || "Preencha os dados do levantamento para visualizar a mensagem.";
+        updateCompanyWhatsAppPreview();
       }
 
       async function copyWhatsApp() {
@@ -1149,6 +1456,17 @@
         }
         await navigator.clipboard.writeText(text);
         notify("Mensagem copiada para a área de transferência! Cole no WhatsApp.");
+      }
+
+      async function copyCompanyWhatsApp() {
+        const company = state.draft && state.draft.companies[state.activeCompany];
+        if (!company) return;
+        const text = formatCompanyWhatsApp(company, state.activeCompany).join("\n");
+        if (!navigator.clipboard || !navigator.clipboard.writeText) {
+          throw new Error("A cópia automática não está disponível neste navegador.");
+        }
+        await navigator.clipboard.writeText(text);
+        notify(`Mensagem da empresa ${company.name} copiada para a área de transferência!`);
       }
 
       function openWhatsApp() {
@@ -1297,6 +1615,13 @@
           });
         }
         await storeRequest("settings", "readwrite", (store) => store.put({ key: "companyNames", value: state.companies }));
+        if (state.serverConnected) {
+          try {
+            await apiRequest("/settings/company-names", "PUT", state.companies);
+          } catch (err) {
+            console.warn("Não foi possível sincronizar os nomes no MySQL:", err);
+          }
+        }
         renderTabs();
         updateWhatsAppPreview();
         scheduleAutoSave();
@@ -1312,6 +1637,13 @@
           });
         }
         await storeRequest("settings", "readwrite", (store) => store.put({ key: "companyNames", value: state.companies }));
+        if (state.serverConnected) {
+          try {
+            await apiRequest("/settings/company-names", "PUT", state.companies);
+          } catch (err) {
+            console.warn("Não foi possível sincronizar os nomes no MySQL:", err);
+          }
+        }
         renderCompanySettings();
         renderTabs();
         updateWhatsAppPreview();
@@ -1433,12 +1765,30 @@
       /* Inicialização Geral da Aplicação */
       async function initialize() {
         initTheme();
+        loadStorageConfig();
         try {
           state.db = await openDatabase();
-          const savedSettings = await storeRequest("settings", "readonly", (store) => store.get("companyNames"));
-          const savedNames = savedSettings && Array.isArray(savedSettings.value) && savedSettings.value.length === COMPANY_COUNT
-            ? savedSettings.value
-            : [];
+
+          // Inicializar conexão com o servidor MySQL (se não estiver em modo exclusivamente local)
+          await checkServerConnection(false);
+
+          let savedNames = [];
+          if (state.serverConnected) {
+            try {
+              const remoteNames = await apiRequest("/settings/company-names");
+              if (Array.isArray(remoteNames) && remoteNames.length === COMPANY_COUNT) {
+                savedNames = remoteNames;
+              }
+            } catch (_) {}
+          }
+
+          if (!savedNames.length) {
+            const savedSettings = await storeRequest("settings", "readonly", (store) => store.get("companyNames"));
+            if (savedSettings && Array.isArray(savedSettings.value) && savedSettings.value.length === COMPANY_COUNT) {
+              savedNames = savedSettings.value;
+            }
+          }
+
           state.companies = DEFAULT_NAMES.map((defaultName, index) => {
             const savedName = typeof savedNames[index] === "string" ? savedNames[index].trim() : "";
             return !savedName || savedName === `Empresa ${index + 1}` ? defaultName : savedName;
@@ -1459,18 +1809,68 @@
             state.draft = newDraft();
           }
 
-          $("dbDot").classList.add("ready");
-          $("dbStatus").textContent = "Conectado";
           render();
           setupClipboardAndDropZone();
         } catch (error) {
-          $("dbStatus").textContent = "Erro no banco local";
+          setStorageStatus("error", "Erro ao carregar");
           showError(error);
-          $("historyList").innerHTML = '<div class="empty-history">O banco local não pôde ser iniciado.</div>';
+          $("historyList").innerHTML = '<div class="empty-history">O armazenamento não pôde ser iniciado.</div>';
         }
       }
 
       /* Event Listeners */
+      $("storageSettingsButton").addEventListener("click", () => {
+        $("storageSettings").classList.toggle("hidden");
+      });
+
+      const serverPowerSwitch = $("serverPowerSwitch");
+      if (serverPowerSwitch) {
+        serverPowerSwitch.addEventListener("change", async (e) => {
+          if (e.target.checked) {
+            state.storageMode = "auto";
+            if ($("storageMode")) $("storageMode").value = "auto";
+          } else {
+            state.storageMode = "local";
+            if ($("storageMode")) $("storageMode").value = "local";
+          }
+          saveStorageConfig();
+          await checkServerConnection(true);
+          await renderHistory();
+        });
+      }
+
+      $("storageMode").addEventListener("change", async () => {
+        saveStorageConfig();
+        await checkServerConnection(true);
+        await renderHistory();
+      });
+
+      $("apiUrlInput").addEventListener("change", () => {
+        saveStorageConfig();
+      });
+
+      $("apiTokenInput").addEventListener("change", () => {
+        saveStorageConfig();
+      });
+
+      $("testConnectionButton").addEventListener("click", async () => {
+        saveStorageConfig();
+        await checkServerConnection(true);
+        await renderHistory();
+      });
+
+      $("toggleConnectButton").addEventListener("click", async () => {
+        if (state.storageMode === "local") {
+          state.storageMode = "auto";
+          $("storageMode").value = "auto";
+        } else {
+          state.storageMode = "local";
+          $("storageMode").value = "local";
+        }
+        saveStorageConfig();
+        await checkServerConnection(true);
+        await renderHistory();
+      });
       $("balanceInput").addEventListener("input", () => {
         readActiveCompany();
         renderOverview();
@@ -1530,6 +1930,7 @@
       $("newReportButton").addEventListener("click", startNewReport);
       $("saveReportButton").addEventListener("click", () => saveReport().catch(showError));
       $("copyReportButton").addEventListener("click", () => copyWhatsApp().catch(showError));
+      $("copyCompanyReportButton").addEventListener("click", () => copyCompanyWhatsApp().catch(showError));
       $("whatsappButton").addEventListener("click", () => {
         try { openWhatsApp(); } catch (error) { showError(error); }
       });
