@@ -1256,6 +1256,46 @@
 
     .hidden { display: none !important; }
     .money-negative { color: var(--red) !important; }
+    .pdf-dialog {
+      width: min(520px, calc(100vw - 24px));
+      padding: 0;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: var(--canvas);
+      color: var(--ink);
+    }
+    .pdf-dialog::backdrop { background: rgba(15, 23, 42, .58); }
+    .pdf-dialog-content { padding: 20px; }
+    .pdf-dialog-content h3 { margin: 0; }
+    .pdf-dialog-content p { color: var(--muted); font-size: 12px; }
+    .pdf-company-options { display: grid; gap: 8px; margin: 18px 0; }
+    .pdf-company-option {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      padding: 9px 10px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius-sm);
+      background: var(--paper);
+    }
+    .pdf-dialog-actions { display: flex; justify-content: flex-end; gap: 8px; flex-wrap: wrap; }
+    .pdf-print-area { background: #fff; color: #111; padding: 24px; }
+    .pdf-print-header h1 { margin: 0; }
+    .pdf-print-header p { margin: 6px 0 18px; }
+    .pdf-print-overview { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 20px; }
+    .pdf-print-overview > div, .pdf-company-summary {
+      border: 1px solid #cbd5d0;
+      padding: 10px;
+      display: flex;
+      flex-direction: column;
+      gap: 5px;
+    }
+    .pdf-print-overview span { font-size: 18px; font-weight: 800; }
+    .pdf-company-section { break-inside: avoid; margin-top: 18px; }
+    .pdf-company-section h2 { border-bottom: 2px solid #1d8f68; padding-bottom: 5px; }
+    .pdf-company-summary { flex-direction: row; flex-wrap: wrap; margin-bottom: 10px; }
+    .pdf-company-section table { width: 100%; border-collapse: collapse; font-size: 11px; }
+    .pdf-company-section th, .pdf-company-section td { border: 1px solid #cbd5d0; padding: 6px; text-align: left; }
 
     /* Responsividade */
     @media (max-width: 960px) {
@@ -1351,6 +1391,8 @@
     /* Estilos de Impressão */
     @media print {
       body { background: #fff; color: #000; }
+      body > *:not(.pdf-print-area) { display: none !important; }
+      .pdf-print-area { display: block !important; }
       .topbar-right, .actions, .table-bottom-bar, .import-panel, details.custom-section, #historySection, .whatsapp-section, .notice { display: none !important; }
       .shell { max-width: 100%; padding: 0; margin: 0; }
       .panel, .stat-card { border: 1px solid #ccc; box-shadow: none; break-inside: avoid; }

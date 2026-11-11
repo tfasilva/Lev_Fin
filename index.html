@@ -65,6 +65,7 @@
       <div class="actions">
         <button class="button" id="newReportButton" type="button">＋ Novo Levantamento</button>
         <button class="button" id="exportCsvButton" type="button" title="Exportar dados para Excel/Sheets">📊 Exportar Excel</button>
+        <button class="button" id="printPdfButton" type="button">📄 Salvar PDF</button>
         <button class="button primary" id="saveReportButton" type="button">💾 Salvar Levantamento</button>
       </div>
     </section>
@@ -307,5 +308,22 @@
   <div class="notice hidden" id="notice" role="status" aria-live="polite"></div>
 
   <script src="app.js" defer></script>
+  <dialog class="pdf-dialog" id="pdfDialog" aria-labelledby="pdfDialogTitle">
+    <div class="pdf-dialog-content">
+      <div class="print-dialog-heading">
+        <div>
+          <h3 id="pdfDialogTitle">Salvar levantamento em PDF</h3>
+          <p>Selecione uma ou mais empresas. Na janela de impressão, escolha “Salvar como PDF”.</p>
+        </div>
+        <button class="button small" id="closePdfDialogButton" type="button">Fechar</button>
+      </div>
+      <div class="pdf-company-options" id="pdfCompanyOptions"></div>
+      <div class="pdf-dialog-actions">
+        <button class="button small" id="selectAllPdfCompaniesButton" type="button">Selecionar todas</button>
+        <button class="button primary" id="confirmPdfButton" type="button">🖨️ Continuar para impressão</button>
+      </div>
+    </div>
+  </dialog>
+  <section class="pdf-print-area hidden" id="pdfPrintArea"></section>
 </body>
 </html>

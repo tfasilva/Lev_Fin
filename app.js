@@ -1419,12 +1419,72 @@
           }
         } else {
           if (state.draft._storage === "server") delete record.id;
+          if (!record.id) delete record.id;
           state.draft.id = Number(await storeRequest("reports", "readwrite", (store) => record.id ? store.put(record) : store.add(record)));
           state.draft._storage = "local";
         }
         $("saveReportButton").textContent = "💾 Atualizar Levantamento";
         notify(state.draft._storage === "server" ? "Levantamento salvo no servidor MySQL." : "Levantamento salvo neste navegador.");
         await renderHistory();
+      }
+
+      function openPdfDialog() {
+        const options = $("pdfCompanyOptions");
+        options.innerHTML = state.draft.companies.map((company, index) => `
+          <label class="pdf-company-option">
+            <input type="checkbox" value="${index}" checked>
+            <span>${escapeHTML(company.name || `Empresa ${index + 1}`)}</span>
+          </label>`).join("");
+        $("pdfDialog").showModal();
+      }
+
+      function renderPdfArea(selectedIndexes) {
+        readMetadata();
+        const companies = state.draft.companies.filter((_, index) => selectedIndexes.includes(index));
+        const rowsForCompany = (company) => (company.payments || []).map((payment) => `
+          <tr>
+            <td>${escapeHTML(dateBR(payment.dueDate))}</td>
+            <td>${escapeHTML(formatCurrencyBR(Number(payment.amount) || 0))}</td>
+            <td>${escapeHTML(payment.description || "Sem descrição")}</td>
+            <td>${escapeHTML(payment.status === "paid" ? "Pago" : payment.status === "authorized" ? "Autorizado" : payment.status === "confirmation" ? "Confirmação" : "A autorizar")}</td>
+            <td>${escapeHTML(remittanceLabel(payment))}</td>
+          </tr>`).join("");
+        $("pdfPrintArea").innerHTML = `
+          <div class="pdf-print-header">
+            <h1>Levantamento Diário</h1>
+            <p>Período: ${escapeHTML(dateBR(state.draft.startDate))} a ${escapeHTML(dateBR(state.draft.endDate))} · ${escapeHTML(state.draft.referenceTime || "--:--")}</p>
+          </div>
+          <div class="pdf-print-overview">
+            <div><strong>Saldo Consolidado</strong><span>${formatCurrencyBR(companies.reduce((sum, c) => sum + (Number(c.balance) || 0), 0))}</span></div>
+            <div><strong>Total a Autorizar</strong><span>${formatCurrencyBR(companies.reduce((sum, c) => sum + paymentTotals(c).pending, 0))}</span></div>
+            <div><strong>Previsão de Saldo Final</strong><span>${formatCurrencyBR(companies.reduce((sum, c) => sum + (Number(c.balance) || 0) - paymentTotals(c).forecastOutflow, 0))}</span></div>
+          </div>
+          ${companies.map((company, index) => {
+            const totals = paymentTotals(company);
+            return `<article class="pdf-company-section">
+              <h2>${escapeHTML(company.name || `Empresa ${index + 1}`)}</h2>
+              <div class="pdf-company-summary">
+                <span>Saldo: <strong>${formatCurrencyBR(Number(company.balance) || 0)}</strong></span>
+                <span>A pagar: <strong>${formatCurrencyBR(totals.payable)}</strong></span>
+                <span>A autorizar: <strong>${formatCurrencyBR(totals.pending)}</strong></span>
+                <span>Saldo final: <strong>${formatCurrencyBR((Number(company.balance) || 0) - totals.forecastOutflow)}</strong></span>
+              </div>
+              <table><thead><tr><th>Vencimento</th><th>Valor</th><th>Descrição / Fornecedor</th><th>Situação</th><th>Método / Remessa</th></tr></thead>
+              <tbody>${rowsForCompany(company) || '<tr><td colspan="5">Sem movimentação.</td></tr>'}</tbody></table>
+            </article>`;
+          }).join("")}`;
+        $("pdfPrintArea").classList.remove("hidden");
+      }
+
+      function printSelectedCompanies() {
+        const selectedIndexes = [...$("pdfCompanyOptions").querySelectorAll("input:checked")].map((input) => Number(input.value));
+        if (!selectedIndexes.length) throw new Error("Selecione pelo menos uma empresa para gerar o PDF.");
+        renderPdfArea(selectedIndexes);
+        $("pdfDialog").close();
+        window.setTimeout(() => {
+          window.print();
+          $("pdfPrintArea").classList.add("hidden");
+        }, 50);
       }
 
       async function loadReport(id, storage = "local") {
@@ -2280,6 +2340,14 @@
         try { downloadWhatsApp(); } catch (error) { showError(error); }
       });
       $("exportCsvButton").addEventListener("click", exportToCSV);
+      $("printPdfButton").addEventListener("click", openPdfDialog);
+      $("closePdfDialogButton").addEventListener("click", () => $("pdfDialog").close());
+      $("selectAllPdfCompaniesButton").addEventListener("click", () => {
+        $("pdfCompanyOptions").querySelectorAll("input").forEach((input) => { input.checked = true; });
+      });
+      $("confirmPdfButton").addEventListener("click", () => {
+        try { printSelectedCompanies(); } catch (error) { showError(error); }
+      });
 
       $("saveCompanyNamesBtn").addEventListener("click", () => saveCompanyNames().catch(showError));
       $("resetCompanyNamesBtn").addEventListener("click", () => resetCompanyNames().catch(showError));
