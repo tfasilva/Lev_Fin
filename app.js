@@ -994,7 +994,8 @@
 
       function importOcrRows() {
         const company = state.draft.companies[state.importCompanyIndex];
-        if (!company.referenceTime) company.referenceTime = new Date().toTimeString().slice(0, 5);
+        const createdAt = new Date().toISOString();
+        if (!company.referenceTime) company.referenceTime = createdAt.slice(11, 16);
         state.importRows.forEach((row, index) => {
           if (!row.dueDate || row.amount === "" || !Number.isFinite(Number(row.amount)) || Number(row.amount) < 0 || !row.description.trim()) {
             throw new Error(`Confira vencimento, valor e fornecedor/histórico do lançamento ${index + 1}.`);
@@ -1018,7 +1019,8 @@
             description: description.trim(),
             status,
             remittanceType,
-            remittanceDate: isManualOrGestao ? "" : (remittanceDate || dueDate)
+            remittanceDate: isManualOrGestao ? "" : (remittanceDate || dueDate),
+            createdAt
           };
         }));
 
@@ -1041,9 +1043,6 @@
         renderOverview();
         renderCompanySettings();
         updateWhatsAppPreview();
-        $("startDate").value = state.draft.startDate || "";
-        $("endDate").value = state.draft.endDate || "";
-        $("referenceTime").value = state.draft.referenceTime || "";
         renderHistory().catch(showError);
       }
 
@@ -1074,6 +1073,10 @@
       function renderPayments() {
         const company = state.draft.companies[state.activeCompany];
         $("balanceInput").value = (company.balance !== undefined && company.balance !== null && company.balance !== "") ? formatCurrencyBR(company.balance) : "";
+        const companyPeriod = getCompanyPeriod(company);
+        $("startDate").value = companyPeriod.startDate || "";
+        $("endDate").value = companyPeriod.endDate || "";
+        $("referenceTime").value = companyPeriod.referenceTime || "";
 
         let paymentsToRender = company.payments || [];
         if (state.filterText) {
@@ -1481,10 +1484,16 @@
 
       function getCompanyPeriod(company) {
         const paymentDates = (company.payments || []).map((p) => p.dueDate).filter(Boolean).sort();
+        const firstCreatedPayment = (company.payments || [])
+          .filter((payment) => payment.createdAt)
+          .sort((a, b) => String(a.createdAt).localeCompare(String(b.createdAt)))[0];
+        const firstCreatedTime = firstCreatedPayment?.createdAt
+          ? new Date(firstCreatedPayment.createdAt).toTimeString().slice(0, 5)
+          : "";
         return {
-          startDate: company.startDate || paymentDates[0] || state.draft.startDate,
-          endDate: company.endDate || paymentDates[paymentDates.length - 1] || state.draft.endDate,
-          referenceTime: company.referenceTime || state.draft.referenceTime
+          startDate: paymentDates[0] || company.startDate || state.draft.startDate,
+          endDate: paymentDates[paymentDates.length - 1] || company.endDate || state.draft.endDate,
+          referenceTime: firstCreatedTime || company.referenceTime || state.draft.referenceTime
         };
       }
 
@@ -1826,7 +1835,8 @@
         const company = state.draft.companies[state.activeCompany];
         const hasPayments = state.draft.companies.some((item) => (item.payments || []).length > 0);
         const firstPaymentDate = state.draft.endDate || todayISO();
-        if (!company.referenceTime) company.referenceTime = new Date().toTimeString().slice(0, 5);
+        const createdAt = new Date().toISOString();
+        if (!company.referenceTime) company.referenceTime = createdAt.slice(11, 16);
         if (!hasPayments) {
           const currentTime = new Date().toTimeString().slice(0, 5);
           state.draft.startDate = state.draft.startDate || firstPaymentDate;
@@ -1842,7 +1852,8 @@
           description: "",
           status: "pending",
           remittanceType: "standard",
-          remittanceDate: firstPaymentDate
+          remittanceDate: firstPaymentDate,
+          createdAt
         });
         renderPayments();
         renderTabs();
