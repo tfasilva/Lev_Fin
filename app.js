@@ -1290,11 +1290,22 @@
         const balance = companies.reduce((sum, company) => sum + (Number(company.balance) || 0), 0);
         const pending = companies.reduce((sum, company) => sum + paymentTotals(company).pending, 0);
         const forecast = companies.reduce((sum, company) => sum + (Number(company.balance) || 0) - paymentTotals(company).forecastOutflow, 0);
+        const breakdown = (getValue) => companies.map((company, index) => `
+          <div class="stat-breakdown-row">
+            <span title="${escapeHTML(company.name || `Empresa ${index + 1}`)}">${escapeHTML(company.name || `Empresa ${index + 1}`)}</span>
+            <strong>${formatCurrencyBR(getValue(company))}</strong>
+          </div>`).join("");
 
         $("overallBalance").textContent = formatCurrencyBR(balance);
         $("overallPending").textContent = formatCurrencyBR(pending);
         $("overallForecast").textContent = formatCurrencyBR(forecast);
         $("overallForecast").classList.toggle("money-negative", forecast < 0);
+        $("balanceByCompany").innerHTML = breakdown((company) => Number(company.balance) || 0);
+        $("pendingByCompany").innerHTML = breakdown((company) => paymentTotals(company).pending);
+        $("forecastByCompany").innerHTML = breakdown((company) => {
+          const totals = paymentTotals(company);
+          return (Number(company.balance) || 0) - totals.forecastOutflow;
+        });
       }
 
       /* Histórico de Levantamentos */
@@ -1464,6 +1475,10 @@
       /* Formatação WhatsApp 100% Fiel ao Modelo Padrão */
       const WHATSAPP_SEPARATOR = "────────────────────";
 
+      function formatNoMovementLine(date) {
+        return `➡️ *PARA ${dateBR(date)}:* 🆗 Sem movimentação.`;
+      }
+
       function getCompanyPeriod(company) {
         const paymentDates = (company.payments || []).map((p) => p.dueDate).filter(Boolean).sort();
         return {
@@ -1512,14 +1527,13 @@
         const allDates = getRelevantPaymentDates(company);
         if (allDates.length === 0) {
           const period = getCompanyPeriod(company);
-          lines.push(`➡️ *PARA ${dateBR(period.startDate)}:* 🆗 Sem movimentação.`);
+          lines.push(formatNoMovementLine(period.startDate));
           lines.push(WHATSAPP_SEPARATOR);
         } else {
-          allDates.forEach((date, dateIndex) => {
+          allDates.forEach((date) => {
             const paymentsForDate = (company.payments || []).filter((p) => p.dueDate === date);
-            if (dateIndex > 0) lines.push("");
             if (paymentsForDate.length === 0) {
-              lines.push(`➡️ *PARA ${dateBR(date)}:* 🆗 Sem movimentação.`);
+              lines.push(formatNoMovementLine(date));
               lines.push(WHATSAPP_SEPARATOR);
               return;
             }
@@ -1588,8 +1602,10 @@
         readMetadata();
         const lines = [];
         state.draft.companies.forEach((company, index) => {
-          lines.push(...formatWhatsAppPeriodHeader(company));
-          lines.push("");
+          if (index === 0) {
+            lines.push(...formatWhatsAppPeriodHeader(company));
+            lines.push("");
+          }
           lines.push(...formatCompanyWhatsApp(company, index));
           lines.push("");
           lines.push(WHATSAPP_SEPARATOR);
@@ -1636,14 +1652,14 @@
           }
 
           if (allDates.length === 0) {
-            lines.push(`➡️ *PARA ${start}:* 🆗`);
+            lines.push(formatNoMovementLine(state.draft.startDate));
             lines.push("------------------------------------------------");
           } else {
             allDates.forEach((date) => {
               const paymentsForDate = (company.payments || []).filter((p) => p.dueDate === date);
 
               if (paymentsForDate.length === 0) {
-                lines.push(`➡️ *PARA ${dateBR(date)}:* 🆗`);
+                lines.push(formatNoMovementLine(date));
                 lines.push("------------------------------------------------");
               } else {
                 const dayPayable = paymentsForDate.reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
@@ -1730,7 +1746,8 @@
       async function copyCompanyWhatsApp() {
         const company = state.draft && state.draft.companies[state.activeCompany];
         if (!company) return;
-        const text = [...formatWhatsAppPeriodHeader(company), "", ...formatCompanyWhatsApp(company, state.activeCompany)].join("\n");
+        const header = state.activeCompany === 0 ? [...formatWhatsAppPeriodHeader(company), ""] : [];
+        const text = [...header, ...formatCompanyWhatsApp(company, state.activeCompany)].join("\n");
         if (!navigator.clipboard || !navigator.clipboard.writeText) {
           throw new Error("A cópia automática não está disponível neste navegador.");
         }
@@ -1742,7 +1759,8 @@
         const company = state.draft && state.draft.companies[state.activeCompany];
         if (!company) return;
         $("companyPreviewName").textContent = company.name || `Empresa ${state.activeCompany + 1}`;
-        $("companyWhatsAppPreview").textContent = [...formatWhatsAppPeriodHeader(company), "", ...formatCompanyWhatsApp(company, state.activeCompany)].join("\n");
+        const header = state.activeCompany === 0 ? [...formatWhatsAppPeriodHeader(company), ""] : [];
+        $("companyWhatsAppPreview").textContent = [...header, ...formatCompanyWhatsApp(company, state.activeCompany)].join("\n");
       }
 
       function openWhatsApp() {

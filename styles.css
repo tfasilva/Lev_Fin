@@ -385,6 +385,32 @@
       letter-spacing: -.03em;
       font-variant-numeric: tabular-nums;
     }
+    .stat-breakdown {
+      display: grid;
+      gap: 3px;
+      margin-top: 10px;
+      font-size: 11px;
+      line-height: 1.25;
+      font-variant-numeric: tabular-nums;
+    }
+    .stat-breakdown-row {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 8px;
+      color: var(--ink-secondary);
+    }
+    .stat-breakdown-row span {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .stat-breakdown-row strong {
+      flex: 0 0 auto;
+      color: var(--ink);
+      font-weight: 700;
+    }
     .stat-note {
       margin-top: 4px;
       color: var(--muted);
