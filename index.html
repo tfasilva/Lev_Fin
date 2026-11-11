@@ -128,7 +128,24 @@
       <div class="company-toolbar">
         <div class="balance-box">
           <label for="balanceInput">💰 Saldo Inicial / Atual (R$):</label>
-          <input id="balanceInput" type="number" step="0.01" placeholder="0,00">
+          <input id="balanceInput" type="text" inputmode="decimal" placeholder="R$ 0,00">
+        </div>
+        <div class="payment-filters">
+          <span class="payment-filters-label">Filtros:</span>
+          <select class="list-filter-control" id="paymentStatusFilter" aria-label="Filtrar por situação">
+            <option value="all">Todas as situações</option>
+            <option value="pending">A autorizar</option>
+            <option value="authorized">Autorizados</option>
+            <option value="paid">Pagos</option>
+            <option value="confirmation">Confirmação</option>
+          </select>
+          <select class="list-filter-control" id="paymentSort" aria-label="Ordenar lançamentos">
+            <option value="date-asc">Vencimento crescente</option>
+            <option value="date-desc">Vencimento decrescente</option>
+            <option value="amount-desc">Maior valor</option>
+            <option value="amount-asc">Menor valor</option>
+            <option value="description-asc">Descrição A-Z</option>
+          </select>
         </div>
         <div class="search-filter-box">
           <span class="search-icon">🔍</span>
@@ -138,14 +155,22 @@
 
       <div class="table-wrap">
         <table>
+          <colgroup>
+            <col class="payment-col-date">
+            <col class="payment-col-amount">
+            <col class="payment-col-description">
+            <col class="payment-col-status">
+            <col class="payment-col-remittance">
+            <col class="payment-col-actions">
+          </colgroup>
           <thead>
             <tr>
-              <th style="width: 14%;">Vencimento</th>
-              <th style="width: 13%;">Valor (R$)</th>
-              <th style="width: 32%;">Descrição / Fornecedor</th>
-              <th style="width: 15%;">Situação</th>
-              <th style="width: 19%;">Método no Banco / Remessa</th>
-              <th style="width: 7%; text-align: center;">Ações</th>
+              <th>Vencimento</th>
+              <th>Valor (R$)</th>
+              <th>Descrição / Fornecedor</th>
+              <th>Situação</th>
+              <th>Método no Banco / Remessa</th>
+              <th style="text-align: center;">Ações</th>
             </tr>
           </thead>
           <tbody id="paymentRows"></tbody>
@@ -164,15 +189,20 @@
         <div class="company-totals" id="companyTotals"></div>
       </div>
 
-      <section class="company-whatsapp-preview" aria-label="Pré-visualização do WhatsApp da empresa">
-        <div class="company-whatsapp-preview-heading">
+      <section class="company-preview-panel" aria-label="Pré-visualização da empresa selecionada">
+        <div class="company-preview-heading">
           <div>
-            <h3>📱 Pré-visualização desta empresa</h3>
-            <p>Conteúdo da aba <strong id="companyPreviewName">atual</strong> no modelo do WhatsApp.</p>
+            <h3>📱 Pré-visualização desta aba</h3>
+            <p>Modelo da empresa ativa: <strong id="companyPreviewName">atual</strong>.</p>
           </div>
-          <button class="button small" id="copyCompanyReportButton" type="button">📋 Copiar empresa</button>
+          <div class="company-preview-actions">
+            <button class="button small" id="copyCompanyReportButton" type="button">📋 Copiar empresa</button>
+            <button class="button small" id="copyReportButton" type="button">📋 Copiar resumo</button>
+            <button class="button small whatsapp" id="whatsappButton" type="button">💬 Abrir WhatsApp ↗</button>
+            <button class="button small" id="downloadReportButton" type="button">📄 Baixar .txt</button>
+          </div>
         </div>
-        <div class="whatsapp-bubble company-whatsapp-bubble" id="companyWhatsAppPreview">Preencha os dados do levantamento para visualizar a mensagem.</div>
+        <div class="whatsapp-bubble company-preview-bubble" id="companyWhatsAppPreview">Preencha os dados do levantamento para visualizar a mensagem.</div>
       </section>
 
       <!-- Importação via Print (OCR) com Suporte a Ctrl+V e Drag & Drop -->
@@ -197,6 +227,16 @@
           </div>
           <div class="hidden" id="ocrReview">
             <p class="import-warning">⚠️ <b>Atenção:</b> Revise os campos identificados antes de confirmar. Métodos de remessa bancária e datas de remessa devem ser selecionados abaixo.</p>
+            <div class="import-list-controls">
+              <input id="ocrFilterInput" type="search" placeholder="Filtrar por fornecedor, valor ou data..." aria-label="Filtrar conferência OCR">
+              <select id="ocrSort" aria-label="Ordenar conferência OCR">
+                <option value="date-asc">Vencimento crescente</option>
+                <option value="date-desc">Vencimento decrescente</option>
+                <option value="amount-desc">Maior valor</option>
+                <option value="amount-asc">Menor valor</option>
+                <option value="description-asc">Descrição A-Z</option>
+              </select>
+            </div>
             <div class="import-preview" id="ocrRows"></div>
             <div class="ocr-summary" id="ocrSummary" aria-live="polite"></div>
             <div class="import-actions">
@@ -206,28 +246,6 @@
           </div>
         </div>
       </dialog>
-    </section>
-
-    <!-- Compartilhamento e WhatsApp -->
-    <section class="panel whatsapp-section">
-      <div class="panel-heading">
-        <div>
-          <h2 class="panel-title">📱 Compartilhar Resumo no WhatsApp</h2>
-          <p class="panel-description">Mensagem formatada exatamente conforme o modelo padrão pronto para envio.</p>
-        </div>
-        <div class="actions">
-          <button class="button" id="copyReportButton" type="button">📋 Copiar Mensagem</button>
-          <button class="button whatsapp" id="whatsappButton" type="button">💬 Abrir no WhatsApp ↗</button>
-          <button class="button" id="downloadReportButton" type="button">📄 Baixar .txt</button>
-        </div>
-      </div>
-      <div class="whatsapp-preview-container">
-        <div class="whatsapp-preview-header">
-          <span>Pré-visualização da mensagem padrão</span>
-          <span style="font-size: 11px;">Atualizada em tempo real</span>
-        </div>
-        <div class="whatsapp-bubble" id="whatsappPreview">Carregando visualização...</div>
-      </div>
     </section>
 
     <!-- Histórico de Levantamentos Salvos -->
@@ -266,6 +284,17 @@
           <button class="button small" id="backupExportBtn" type="button">⬇️ Baixar Backup JSON</button>
           <input class="hidden" id="backupImportInput" type="file" accept=".json">
           <button class="button small" id="backupImportBtn" type="button">⬆️ Restaurar Backup JSON</button>
+        </div>
+
+        <hr style="border: none; border-top: 1px solid var(--line); margin: 24px 0;">
+
+        <h4 style="margin: 0 0 10px 0; font-size: 14px;">🔒 Senha do histórico</h4>
+        <p style="margin: 0 0 14px 0; font-size: 12px; color: var(--muted);">A senha bloqueia a visualização dos levantamentos salvos após recarregar a página. Ela é armazenada apenas como hash neste navegador.</p>
+        <div class="history-password-fields">
+          <input id="historyPasswordInput" type="password" autocomplete="new-password" placeholder="Nova senha (mínimo 6 caracteres)">
+          <input id="historyPasswordConfirm" type="password" autocomplete="new-password" placeholder="Confirmar nova senha">
+          <button class="button small primary" id="saveHistoryPasswordButton" type="button">Definir / Alterar Senha</button>
+          <button class="button small" id="lockHistoryButton" type="button">🔒 Bloquear Histórico</button>
         </div>
       </div>
     </details>

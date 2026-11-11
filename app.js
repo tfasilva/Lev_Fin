@@ -8,6 +8,7 @@
       const AUTOSAVE_KEY = "levfin_autosave_draft_v2";
       const THEME_KEY = "levfin_theme_v2";
       const STORAGE_KEY = "levfin_storage_config_v1";
+      const HISTORY_PASSWORD_KEY = "levfin_history_password_hash_v1";
 
       const DEFAULT_API_URL = "http://127.0.0.1/levfin-api.php";
 
@@ -25,10 +26,15 @@
         importRows: [],
         importCompanyIndex: 0,
         filterText: "",
+        paymentStatusFilter: "all",
+        paymentSort: "date-asc",
+        ocrFilterText: "",
+        ocrSort: "date-asc",
         storageMode: "auto", // "auto", "server", "local"
         apiUrl: DEFAULT_API_URL,
         apiToken: "",
-        serverConnected: false
+        serverConnected: false,
+        historyUnlocked: false
       };
 
       function loadStorageConfig() {
@@ -196,6 +202,65 @@
         notify(error instanceof Error ? error.message : "Ocorreu um erro inesperado.", true);
       }
 
+      function hasHistoryPassword() {
+        return Boolean(localStorage.getItem(HISTORY_PASSWORD_KEY));
+      }
+
+      async function hashHistoryPassword(password) {
+        if (!window.crypto || !window.crypto.subtle) {
+          throw new Error("Este navegador não oferece criptografia segura para proteger o histórico.");
+        }
+        const data = new TextEncoder().encode(password);
+        const digest = await window.crypto.subtle.digest("SHA-256", data);
+        return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
+      }
+
+      async function setHistoryPassword() {
+        const password = $("historyPasswordInput").value;
+        const confirmation = $("historyPasswordConfirm").value;
+        if (password.length < 6) throw new Error("A senha do histórico deve ter pelo menos 6 caracteres.");
+        if (password !== confirmation) throw new Error("A confirmação da senha não confere.");
+        localStorage.setItem(HISTORY_PASSWORD_KEY, await hashHistoryPassword(password));
+        state.historyUnlocked = true;
+        $("historyPasswordInput").value = "";
+        $("historyPasswordConfirm").value = "";
+        await renderHistory();
+        notify("Senha do histórico configurada. O histórico está desbloqueado nesta sessão.");
+      }
+
+      async function unlockHistory() {
+        if (!hasHistoryPassword()) {
+          $("settingsDetails").open = true;
+          notify("Defina uma senha nas configurações antes de acessar o histórico.", true);
+          return;
+        }
+        const password = window.prompt("Informe a senha para visualizar os levantamentos salvos:");
+        if (password === null) return;
+        const passwordHash = await hashHistoryPassword(password);
+        if (passwordHash !== localStorage.getItem(HISTORY_PASSWORD_KEY)) {
+          throw new Error("Senha do histórico inválida.");
+        }
+        state.historyUnlocked = true;
+        await renderHistory();
+        notify("Histórico desbloqueado nesta sessão.");
+      }
+
+      function lockHistory() {
+        state.historyUnlocked = false;
+        renderHistory().catch(showError);
+        notify("Histórico bloqueado.");
+      }
+
+      function requireHistoryAccess() {
+        if (!hasHistoryPassword()) {
+          $("settingsDetails").open = true;
+          throw new Error("Defina uma senha do histórico nas configurações.");
+        }
+        if (!state.historyUnlocked) {
+          throw new Error("Desbloqueie o histórico antes de continuar.");
+        }
+      }
+
       function escapeHTML(value) {
         if (value === null || value === undefined) return "";
         return String(value).replace(/[&<>"']/g, (character) => ({
@@ -227,6 +292,18 @@
         const intPart = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, ".");
         const decPart = parts[1];
         return `R$ ${isNegative ? "-" : ""}${intPart},${decPart}`;
+      }
+
+      function formatPaymentAmount(value) {
+        return value === "" || value === null || value === undefined ? "" : formatCurrencyBR(Number(value) || 0);
+      }
+
+      function parsePaymentAmount(value) {
+        const text = String(value || "").trim();
+        if (!text) return "";
+        if (/R\$|,/.test(text) || /^\d{1,3}(?:\.\d{3})+$/.test(text)) return parseBrazilianAmount(text);
+        const parsed = Number(text);
+        return Number.isFinite(parsed) ? parsed : "";
       }
 
       /* Cálculos Financeiros */
@@ -327,6 +404,28 @@
         if (!digits) return null;
         const amount = Number(digits) / 100;
         return normalized.trim().startsWith("-") ? -amount : amount;
+      }
+
+      function updatePeriodFromOcrRows(rows) {
+        const dates = rows
+          .map((row) => row.dueDate)
+          .filter((date) => /^\d{4}-\d{2}-\d{2}$/.test(date))
+          .sort();
+        if (!dates.length) return false;
+
+        const existingDates = state.draft.companies
+          .flatMap((company) => (company.payments || []).map((payment) => payment.dueDate))
+          .filter((date) => /^\d{4}-\d{2}-\d{2}$/.test(date))
+          .sort();
+        const allDates = [...existingDates, ...dates].sort();
+        const startDate = allDates[0];
+        const endDate = allDates[allDates.length - 1];
+
+        state.draft.startDate = startDate;
+        state.draft.endDate = endDate;
+        $("startDate").value = startDate;
+        $("endDate").value = endDate;
+        return true;
       }
       function parseReviewAmount(value) {
         const text = String(value).trim().replace(/R\$\s?/gi, '').replace(/\s/g, '');
@@ -531,7 +630,24 @@
           const second = secondRows[index];
           const best = second.confidence > first.confidence ? second : first;
           const other = best === first ? second : first;
-          return { ...best, dueDate: best.dueDate || other.dueDate, amount: best.amount !== "" ? best.amount : other.amount, description: best.description || other.description, status: best.status || other.status, confidence: Math.min(best.confidence, 74), ocrAmountMissing: best.amount === "" && other.amount === "" };
+          const dueDate = best.dueDate || other.dueDate;
+          const amount = best.amount !== "" ? best.amount : other.amount;
+          const description = best.description || other.description;
+          const status = best.status || other.status;
+          const recoveredFields = Number(!best.dueDate && Boolean(other.dueDate))
+            + Number(best.amount === "" && other.amount !== "")
+            + Number(!best.description && Boolean(other.description))
+            + Number(!best.status && Boolean(other.status));
+          const confidence = Math.max(best.confidence, other.confidence) - recoveredFields * 5;
+          return {
+            ...best,
+            dueDate,
+            amount,
+            description,
+            status,
+            confidence: Math.max(25, Math.min(100, confidence)),
+            ocrAmountMissing: amount === ""
+          };
         });
       }
       async function refineOcrAmounts(rows, sourceCanvas, worker) {
@@ -668,6 +784,7 @@
             state.importRows = chooseMoreReliableRows(state.importRows, secondRows);
           }
           state.importRows = await refineOcrAmounts(state.importRows, canvas, worker);
+          const periodUpdated = updatePeriodFromOcrRows(state.importRows);
           if (!state.importRows.length) {
             const recognizedText = (result.data.text || "").slice(0, 250).trim();
             throw new Error(`Não consegui associar as linhas aos títulos das colunas. Confira se o print inclui os cabeçalhos Vencimento e Valor e se as linhas estão legíveis.${recognizedText ? ` Texto lido: ${recognizedText}` : ""}`);
@@ -675,7 +792,9 @@
           renderOcrPreview();
           $("ocrReview").classList.remove("hidden");
           const companyName = state.draft.companies[state.importCompanyIndex].name;
-          $("ocrStatus").textContent = `${state.importRows.length} lançamento(s) lido(s) para ${companyName}.`;
+          $("ocrStatus").textContent = `${state.importRows.length} lançamento(s) lido(s) para ${companyName}.${periodUpdated ? ` Período ajustado para ${dateBR(state.draft.startDate)} a ${dateBR(state.draft.endDate)}.` : ""}`;
+          updateWhatsAppPreview();
+          scheduleAutoSave();
         } finally {
           if (bitmap) bitmap.close();
           $("ocrProgress").classList.add("hidden");
@@ -685,14 +804,23 @@
       }
 
       function renderOcrPreview() {
-        $("ocrRows").innerHTML = state.importRows.map((row, index) => {
+        const term = normalizeText(state.ocrFilterText);
+        const visibleRows = state.importRows
+          .map((row, originalIndex) => ({ row, originalIndex }))
+          .filter(({ row }) => !term || normalizeText(`${row.description || ""} ${row.dueDate || ""} ${row.amount || ""}`).includes(term))
+          .sort((a, b) => sortRows(a.row, b.row, state.ocrSort));
+
+        $("ocrRows").innerHTML = visibleRows.map(({ row, originalIndex }, displayIndex) => {
           const confidence = row.confidence < 75 ? "Leitura baixa — confira com atenção" : `Confiança ${row.confidence}%`;
           const confidenceClass = row.confidence < 75 ? "import-confidence low" : "import-confidence";
           const isDateHidden = !row.remittanceType || row.remittanceType === "manual" || row.remittanceType === "gestao";
-          return `<article class="import-row" data-import-row="${index}">
+          return `<article class="import-row" data-import-row="${originalIndex}">
             <div class="import-row-heading">
-              <span>Lançamento ${index + 1}</span>
-              <span class="${confidenceClass}">${confidence}</span>
+              <span>Lançamento ${displayIndex + 1}</span>
+              <div class="import-row-heading-actions">
+                <span class="${confidenceClass}">${confidence}</span>
+                <button class="action-btn-sm delete" type="button" data-import-remove="${originalIndex}" title="Excluir este lançamento" aria-label="Excluir lançamento ${displayIndex + 1}">✕</button>
+              </div>
             </div>
             <div class="import-fields">
               <div>
@@ -728,7 +856,7 @@
                   <option value="gestao"${row.remittanceType === "gestao" ? " selected" : ""}>📝 Lançamento Gestão</option>
                 </select>
               </div>
-              <div data-remittance-date="${index}"${isDateHidden ? ' class="hidden"' : ""}>
+              <div data-remittance-date="${originalIndex}"${isDateHidden ? ' class="hidden"' : ""}>
                 <label>Data da Remessa</label>
                 <input type="date" class="${row.remittanceDate ? "" : "ocr-field-missing"}" data-import-field="remittanceDate" value="${escapeHTML(row.remittanceDate)}">
               </div>
@@ -737,6 +865,22 @@
         }).join("");
 
         renderOcrSummary();
+        if (!visibleRows.length) {
+          $("ocrRows").innerHTML = '<div class="table-empty">Nenhum lançamento corresponde ao filtro.</div>';
+        }
+        $("ocrRows").querySelectorAll("[data-import-remove]").forEach((button) => {
+          button.addEventListener("click", () => {
+            const index = Number(button.dataset.importRemove);
+            state.importRows.splice(index, 1);
+            renderOcrPreview();
+            if (!state.importRows.length) {
+              $("ocrReview").classList.add("hidden");
+              $("ocrStatus").textContent = "Todos os lançamentos da leitura foram removidos.";
+            }
+
+          });
+        });
+
         $("ocrRows").querySelectorAll("[data-import-field]").forEach((input) => {
           const update = () => {
             const card = input.closest("[data-import-row]");
@@ -746,12 +890,26 @@
               const parsedAmount = parseReviewAmount(input.value);
               state.importRows[index].amount = input.value.trim() === "" ? "" : (parsedAmount !== null && Number.isFinite(parsedAmount) ? parsedAmount : "");
             } else state.importRows[index][field] = input.value;
+            if (field === "dueDate" && ["standard", "pix"].includes(state.importRows[index].remittanceType)) {
+              state.importRows[index].remittanceDate = input.value;
+              const remittanceDateInput = card.querySelector('[data-import-field="remittanceDate"]');
+              if (remittanceDateInput) remittanceDateInput.value = input.value;
+            }
             const needsValue = ["dueDate", "amount", "description", "status", "remittanceType"].includes(field) || (field === "remittanceDate" && !["manual", "gestao"].includes(state.importRows[index].remittanceType));
             input.classList.toggle("ocr-field-missing", needsValue && !input.value);
             if (field === "remittanceType") {
               const hidesDate = input.value === "manual" || input.value === "gestao" || !input.value;
-              if (hidesDate) state.importRows[index].remittanceDate = "";
+              if (hidesDate) {
+                state.importRows[index].remittanceDate = "";
+              } else {
+                state.importRows[index].remittanceDate = state.importRows[index].dueDate || "";
+              }
               card.querySelector(`[data-remittance-date="${index}"]`).classList.toggle("hidden", hidesDate);
+              const dateInput = card.querySelector('[data-import-field="remittanceDate"]');
+              if (dateInput) {
+                dateInput.value = state.importRows[index].remittanceDate;
+                dateInput.classList.toggle("ocr-field-missing", !state.importRows[index].remittanceDate);
+              }
             }
             renderOcrSummary();
           };
@@ -771,6 +929,16 @@
         });
       }
 
+      function sortRows(a, b, sort) {
+        if (sort === "amount-desc" || sort === "amount-asc") {
+          const direction = sort === "amount-desc" ? -1 : 1;
+          return ((Number(a.amount) || 0) - (Number(b.amount) || 0)) * direction;
+        }
+        if (sort === "description-asc") return String(a.description || "").localeCompare(String(b.description || ""), "pt-BR");
+        const direction = sort === "date-desc" ? -1 : 1;
+        return String(a.dueDate || "").localeCompare(String(b.dueDate || "")) * direction;
+      }
+
       function renderOcrSummary() {
         const summary = $("ocrSummary");
         if (!summary) return;
@@ -788,15 +956,21 @@
 
         const company = state.draft && state.draft.companies[state.importCompanyIndex];
         const bankBalance = Number(company && company.balance) || 0;
-        const difference = total - bankBalance;
+        let remainingBalance = bankBalance;
         const dateRows = [...groups.entries()]
           .sort(([dateA], [dateB]) => dateA.localeCompare(dateB))
-          .map(([date, dateTotal]) => `
+          .map(([date, dateTotal]) => {
+            remainingBalance -= dateTotal;
+            return `
             <div class="ocr-summary-date">
-              <span>${date ? `Vencimentos de ${escapeHTML(dateBR(date))}` : "Data não informada"}</span>
-              <strong>${formatCurrencyBR(dateTotal)}</strong>
+              <div>
+                <span>${date ? `Vencimentos de ${escapeHTML(dateBR(date))}` : "Data não informada"}</span>
+                <strong>Total da data: ${formatCurrencyBR(dateTotal)}</strong>
+              </div>
+              <strong class="${remainingBalance < 0 ? "money-negative" : ""}">Saldo após desconto: ${formatCurrencyBR(remainingBalance)}</strong>
             </div>
-          `).join("");
+          `;
+          }).join("");
 
         summary.innerHTML = `
           <div class="ocr-summary-heading">
@@ -809,7 +983,7 @@
           <div class="ocr-summary-dates">${dateRows || '<div class="ocr-summary-empty">Informe valores válidos para visualizar o resumo.</div>'}</div>
           <div class="ocr-summary-totals">
             <span>Total final <strong>${formatCurrencyBR(total)}</strong></span>
-            <span class="${difference < 0 ? "money-negative" : ""}">Total final - saldo do banco <strong>${formatCurrencyBR(difference)}</strong></span>
+            <span class="${remainingBalance < 0 ? "money-negative" : ""}">Saldo final após todos os descontos <strong>${formatCurrencyBR(remainingBalance)}</strong></span>
           </div>`;
       }
 
@@ -838,7 +1012,7 @@
             description: description.trim(),
             status,
             remittanceType,
-            remittanceDate: isManualOrGestao ? "" : remittanceDate
+            remittanceDate: isManualOrGestao ? "" : (remittanceDate || dueDate)
           };
         }));
 
@@ -886,13 +1060,14 @@
             renderTabs();
             renderPayments();
             updateCompanyWhatsAppPreview();
+            updateWhatsAppPreview();
           });
         });
       }
 
       function renderPayments() {
         const company = state.draft.companies[state.activeCompany];
-        $("balanceInput").value = (company.balance !== undefined && company.balance !== null && company.balance !== "") ? company.balance : "";
+        $("balanceInput").value = (company.balance !== undefined && company.balance !== null && company.balance !== "") ? formatCurrencyBR(company.balance) : "";
 
         let paymentsToRender = company.payments || [];
         if (state.filterText) {
@@ -903,19 +1078,35 @@
             dateBR(p.dueDate).includes(term)
           );
         }
+        if (state.paymentStatusFilter !== "all") {
+          paymentsToRender = paymentsToRender.filter((payment) => payment.status === state.paymentStatusFilter);
+        }
+        const dateDirection = state.paymentSort === "date-desc" ? -1 : 1;
+        paymentsToRender.sort((a, b) => {
+          const dateOrder = String(a.dueDate || "").localeCompare(String(b.dueDate || "")) * dateDirection;
+          return dateOrder || sortRows(a, b, state.paymentSort);
+        });
 
-        $("paymentRows").innerHTML = paymentsToRender.map((payment) => {
+        const dateTotals = new Map();
+        paymentsToRender.forEach((payment) => {
+          const date = payment.dueDate || "";
+          dateTotals.set(date, (dateTotals.get(date) || 0) + (Number(payment.amount) || 0));
+        });
+
+        $("paymentRows").innerHTML = paymentsToRender.map((payment, index) => {
           const originalIndex = company.payments.indexOf(payment);
           const remType = paymentRemittanceType(payment);
           const hidesDate = remType === "manual" || remType === "gestao";
           const remClass = hidesDate ? "remittance-cell" : "remittance-cell has-date";
+          const isLastOfDate = index === paymentsToRender.length - 1 || paymentsToRender[index + 1].dueDate !== payment.dueDate;
+          const dateLabel = payment.dueDate ? dateBR(payment.dueDate) : "Data não informada";
           return `
             <tr data-payment="${originalIndex}">
               <td data-label="Vencimento">
                 <input aria-label="Vencimento" type="date" data-field="dueDate" value="${escapeHTML(payment.dueDate || "")}">
               </td>
               <td data-label="Valor (R$)">
-                <input aria-label="Valor" type="number" min="0" step="0.01" placeholder="0,00" data-field="amount" value="${escapeHTML(payment.amount ?? "")}">
+                <input aria-label="Valor" type="text" inputmode="decimal" placeholder="R$ 0,00" data-field="amount" value="${escapeHTML(formatPaymentAmount(payment.amount))}">
               </td>
               <td class="description-cell" data-label="Descrição / Fornecedor">
                 <input aria-label="Descrição" type="text" maxlength="600" placeholder="Fornecedor, nota fiscal, histórico..." data-field="description" value="${escapeHTML(payment.description || "")}">
@@ -943,7 +1134,16 @@
                   <button type="button" class="action-btn-sm delete" data-remove="${originalIndex}" title="Remover lançamento">✕</button>
                 </div>
               </td>
-            </tr>`;
+            </tr>
+            ${isLastOfDate ? `
+            <tr class="payment-date-total">
+              <td colspan="6">
+                <div class="payment-date-total-content">
+                  <span>Total de ${escapeHTML(dateLabel)}</span>
+                  <strong>${formatCurrencyBR(dateTotals.get(payment.dueDate || "") || 0)}</strong>
+                </div>
+              </td>
+            </tr>` : ""}`;
         }).join("");
 
         $("emptyPayments").classList.toggle("hidden", paymentsToRender.length > 0);
@@ -960,6 +1160,12 @@
               dateInput.classList.toggle("hidden", hides);
             }
           });
+          if (input.dataset.field === "amount") {
+            input.addEventListener("blur", () => {
+              const payment = company.payments[Number(input.closest("[data-payment]").dataset.payment)];
+              input.value = formatPaymentAmount(payment.amount);
+            });
+          }
         });
 
         $("paymentRows").querySelectorAll("[data-remove]").forEach((btn) => {
@@ -1010,7 +1216,7 @@
         const field = event.target.dataset.field;
 
         if (field === "amount") {
-          payment[field] = event.target.value === "" ? "" : Number(event.target.value);
+          payment[field] = parsePaymentAmount(event.target.value);
         } else if (field === "remittanceType") {
           payment.remittanceType = event.target.value;
           if (event.target.value === "manual" || event.target.value === "gestao") {
@@ -1022,6 +1228,11 @@
           payment.remittanceDate = event.target.value;
         } else {
           payment[field] = event.target.value;
+          if (field === "dueDate" && ["standard", "pix"].includes(paymentRemittanceType(payment))) {
+            payment.remittanceDate = event.target.value;
+            const remittanceDateInput = row.querySelector('[data-field="remittanceDate"]');
+            if (remittanceDateInput) remittanceDateInput.value = event.target.value;
+          }
         }
 
         $("companyTotals").innerHTML = totalsMarkup(company);
@@ -1035,7 +1246,7 @@
         const company = state.draft.companies[state.activeCompany];
         if (company) {
           const val = $("balanceInput").value;
-          company.balance = val === "" ? 0 : Number(val);
+          company.balance = val === "" ? 0 : (parsePaymentAmount(val) || 0);
         }
       }
 
@@ -1061,6 +1272,16 @@
 
       /* Histórico de Levantamentos */
       async function renderHistory() {
+        if (!state.historyUnlocked) {
+          $("historyList").innerHTML = `
+            <div class="history-locked">
+              <strong>🔒 Histórico protegido</strong>
+              <span>Os levantamentos salvos não são exibidos nesta sessão.</span>
+              <button class="button small primary" type="button" id="unlockHistoryButton">🔓 Desbloquear com senha</button>
+            </div>`;
+          $("unlockHistoryButton").addEventListener("click", () => unlockHistory().catch(showError));
+          return;
+        }
         let reports = [];
         let serverErrorOccurred = false;
 
@@ -1166,6 +1387,7 @@
       }
 
       async function loadReport(id, storage = "local") {
+        requireHistoryAccess();
         const report = storage === "server" ? await apiRequest(`/reports/${id}`) : await storeRequest("reports", "readonly", (store) => store.get(id));
         if (!report) throw new Error("Levantamento não encontrado.");
         report._storage = storage;
@@ -1176,6 +1398,7 @@
       }
 
       async function deleteReport(id, storage = "local") {
+        requireHistoryAccess();
         if (!window.confirm("Deseja realmente excluir este levantamento salvo? Esta ação não pode ser desfeita.")) return;
         if (storage === "server") await apiRequest(`/reports/${id}`, "DELETE");
         else await storeRequest("reports", "readwrite", (store) => store.delete(id));
@@ -1286,7 +1509,10 @@
               groups[key].items.push(payment);
             });
 
-            Object.values(groups).forEach((group) => {
+            const remittancePriority = { standard: 0, pix: 1, manual: 2, gestao: 3 };
+            Object.values(groups)
+              .sort((a, b) => (remittancePriority[a.type] ?? 99) - (remittancePriority[b.type] ?? 99))
+              .forEach((group) => {
               const groupTotal = group.items.reduce((sum, payment) => sum + (Number(payment.amount) || 0), 0);
               const typeLabel = group.type === "standard" ? "Remessa"
                 : group.type === "pix" ? "Remessa PIX"
@@ -1296,7 +1522,7 @@
               lines.push(`✉️ *${typeLabel}${dateLabel}* — *${formatCurrencyBR(groupTotal)}*`);
               group.items.forEach((payment) => {
                 lines.push(`✔️ ${formatCurrencyBR(Number(payment.amount) || 0)} | ${payment.description.trim() || "Sem descrição"}`);
-              });
+                });
             });
             lines.push(WHATSAPP_SEPARATOR);
           });
@@ -1322,13 +1548,6 @@
         });
 
         return lines.join("\n").trim();
-      }
-
-      function updateCompanyWhatsAppPreview() {
-        const company = state.draft && state.draft.companies[state.activeCompany];
-        if (!company) return;
-        $("companyPreviewName").textContent = company.name || `Empresa ${state.activeCompany + 1}`;
-        $("companyWhatsAppPreview").textContent = formatCompanyWhatsApp(company, state.activeCompany).join("\n");
       }
 
       function formatWhatsAppLegacy() {
@@ -1445,7 +1664,8 @@
 
       function updateWhatsAppPreview() {
         const text = formatWhatsApp();
-        $("whatsappPreview").textContent = text || "Preencha os dados do levantamento para visualizar a mensagem.";
+        const preview = $("whatsappPreview");
+        if (preview) preview.textContent = text || "Preencha os dados do levantamento para visualizar a mensagem.";
         updateCompanyWhatsAppPreview();
       }
 
@@ -1467,6 +1687,13 @@
         }
         await navigator.clipboard.writeText(text);
         notify(`Mensagem da empresa ${company.name} copiada para a área de transferência!`);
+      }
+
+      function updateCompanyWhatsAppPreview() {
+        const company = state.draft && state.draft.companies[state.activeCompany];
+        if (!company) return;
+        $("companyPreviewName").textContent = company.name || `Empresa ${state.activeCompany + 1}`;
+        $("companyWhatsAppPreview").textContent = formatCompanyWhatsApp(company, state.activeCompany).join("\n");
       }
 
       function openWhatsApp() {
@@ -1653,6 +1880,7 @@
 
       /* Backup e Restauração */
       async function exportBackup() {
+        requireHistoryAccess();
         const reports = await storeRequest("reports", "readonly", (store) => store.getAll());
         const settings = await storeRequest("settings", "readonly", (store) => store.getAll());
         const backupData = {
@@ -1676,6 +1904,7 @@
       async function importBackup(file) {
         if (!file) return;
         try {
+          requireHistoryAccess();
           const text = await file.text();
           const data = JSON.parse(text);
           if (!data || !Array.isArray(data.reports)) {
@@ -1878,6 +2107,10 @@
         updateWhatsAppPreview();
         scheduleAutoSave();
       });
+      $("balanceInput").addEventListener("blur", () => {
+        readActiveCompany();
+        $("balanceInput").value = formatCurrencyBR(state.draft.companies[state.activeCompany].balance);
+      });
 
       ["startDate", "endDate", "referenceTime"].forEach((id) => {
         $(id).addEventListener("change", () => {
@@ -1890,6 +2123,22 @@
       $("searchPaymentsInput").addEventListener("input", (e) => {
         state.filterText = e.target.value;
         renderPayments();
+      });
+      $("paymentStatusFilter").addEventListener("change", (e) => {
+        state.paymentStatusFilter = e.target.value;
+        renderPayments();
+      });
+      $("paymentSort").addEventListener("change", (e) => {
+        state.paymentSort = e.target.value;
+        renderPayments();
+      });
+      $("ocrFilterInput").addEventListener("input", (e) => {
+        state.ocrFilterText = e.target.value;
+        renderOcrPreview();
+      });
+      $("ocrSort").addEventListener("change", (e) => {
+        state.ocrSort = e.target.value;
+        renderOcrPreview();
       });
 
       $("addPaymentButton").addEventListener("click", addPayment);
@@ -1949,6 +2198,9 @@
           importBackup(e.target.files[0]);
         }
       });
+
+      $("saveHistoryPasswordButton").addEventListener("click", () => setHistoryPassword().catch(showError));
+      $("lockHistoryButton").addEventListener("click", lockHistory);
 
       $("themeToggle").addEventListener("click", toggleTheme);
 

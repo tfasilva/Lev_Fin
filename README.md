@@ -7,6 +7,8 @@ A página pode funcionar de duas formas:
 
 No modo local, os dados ficam neste navegador e dispositivo. Para não perder informações ao trocar de computador ou limpar os dados do site, use regularmente os botões **Baixar Backup JSON** e **Restaurar Backup JSON**.
 
+O histórico salvo fica bloqueado após cada recarregamento da página. Defina uma senha em **Configurações das Empresas e Segurança dos Dados** para desbloquear os levantamentos anteriores. A senha não é enviada ao servidor; somente seu hash é mantido no navegador. Isso impede a visualização acidental por outra sessão do navegador, mas não substitui a criptografia do dispositivo nem protege contra alguém com acesso técnico ao perfil do navegador.
+
 ## Requisitos
 
 - XAMPP com Apache e MySQL/MariaDB ativos (Apache na porta 80 e MySQL na 3306)
@@ -29,6 +31,8 @@ Abra `index.html` com o Live Server do VS Code (`http://127.0.0.1:5500`). A pág
 Se atualizar `api.php` ou `.env` no projeto, execute `deploy-xampp.ps1` para copiar as versões atuais para a pasta privada do XAMPP e atualizar o ponto de entrada.
 
 O reconhecimento de texto usa o arquivo local `por.traineddata`, que deve permanecer na mesma pasta de `index.html`. A leitura faz uma segunda tentativa quando faltam campos. A biblioteca principal do OCR ainda vem da CDN, portanto é necessária conexão com a internet.
+
+Ao importar um print com vencimentos reconhecidos, as datas inicial e final do levantamento são preenchidas automaticamente pelo menor e maior vencimento encontrados. Prints adicionais ampliam o intervalo sem remover lançamentos já existentes.
 
 ## Segurança
 
