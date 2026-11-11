@@ -2,7 +2,7 @@
       "use strict";
 
       const DB_NAME = "levfin-db";
-      const DB_VERSION = 1;
+      const DB_VERSION = 2;
       const COMPANY_COUNT = 5;
       const DEFAULT_NAMES = ["ATHENAS", "BOA VISTA", "H&C", "K&K", "TAURUS"];
       const AUTOSAVE_KEY = "levfin_autosave_draft_v2";
@@ -162,9 +162,32 @@
             return;
           }
           const request = indexedDB.open(DB_NAME, DB_VERSION);
-          request.onupgradeneeded = () => {
+          request.onupgradeneeded = (event) => {
             const db = request.result;
-            if (!db.objectStoreNames.contains("reports")) {
+            const transaction = request.transaction;
+            if (db.objectStoreNames.contains("reports") && event.oldVersion < 2) {
+              const oldReports = transaction.objectStore("reports");
+              if (!oldReports.autoIncrement) {
+                const migrationStoreName = "reports_migration";
+                if (db.objectStoreNames.contains(migrationStoreName)) db.deleteObjectStore(migrationStoreName);
+                const migrationStore = db.createObjectStore(migrationStoreName, { keyPath: "migrationId", autoIncrement: true });
+                oldReports.getAll().onsuccess = (oldEvent) => {
+                  const records = oldEvent.target.result || [];
+                  records.forEach((record) => migrationStore.add({ record }));
+                  db.deleteObjectStore("reports");
+                  const reports = db.createObjectStore("reports", { keyPath: "id", autoIncrement: true });
+                  reports.createIndex("savedAt", "savedAt", { unique: false });
+                  migrationStore.getAll().onsuccess = (migrationEvent) => {
+                    (migrationEvent.target.result || []).forEach((item) => {
+                      const record = { ...item.record };
+                      delete record.id;
+                      reports.add(record);
+                    });
+                    db.deleteObjectStore(migrationStoreName);
+                  };
+                };
+              }
+            } else if (!db.objectStoreNames.contains("reports")) {
               const reports = db.createObjectStore("reports", { keyPath: "id", autoIncrement: true });
               reports.createIndex("savedAt", "savedAt", { unique: false });
             }
@@ -1404,6 +1427,9 @@
         readMetadata(); validateDraft();
         const record = JSON.parse(JSON.stringify(state.draft));
         record.savedAt = new Date().toISOString(); delete record._storage;
+        const existingLocalId = Number.isInteger(Number(state.draft.id)) && Number(state.draft.id) > 0
+          ? Number(state.draft.id)
+          : null;
         if (state.serverConnected) {
           try {
             const saved = state.draft._storage === "server" && state.draft.id
@@ -1418,9 +1444,9 @@
             state.draft._storage = "local";
           }
         } else {
-          if (state.draft._storage === "server") delete record.id;
-          if (!record.id) delete record.id;
-          state.draft.id = Number(await storeRequest("reports", "readwrite", (store) => record.id ? store.put(record) : store.add(record)));
+          if (state.draft._storage === "server" || !existingLocalId) delete record.id;
+          else record.id = existingLocalId;
+          state.draft.id = Number(await storeRequest("reports", "readwrite", (store) => existingLocalId ? store.put(record) : store.add(record)));
           state.draft._storage = "local";
         }
         $("saveReportButton").textContent = "💾 Atualizar Levantamento";
@@ -1481,10 +1507,38 @@
         if (!selectedIndexes.length) throw new Error("Selecione pelo menos uma empresa para gerar o PDF.");
         renderPdfArea(selectedIndexes);
         $("pdfDialog").close();
+        const printWindow = window.open("", "_blank");
+        if (!printWindow) throw new Error("O navegador bloqueou a janela de impressão. Permita pop-ups para gerar o PDF.");
+        const printStyles = `
+          * { box-sizing: border-box; }
+          body { margin: 0; padding: 24px; color: #111; background: #fff; font-family: Arial, sans-serif; font-size: 12px; }
+          h1 { margin: 0; font-size: 24px; }
+          h2 { margin: 22px 0 8px; border-bottom: 2px solid #1d8f68; padding-bottom: 5px; font-size: 18px; }
+          p { margin: 6px 0 18px; }
+          .pdf-print-overview { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 20px; }
+          .pdf-print-overview > div, .pdf-company-summary { border: 1px solid #cbd5d0; padding: 10px; display: flex; flex-direction: column; gap: 5px; }
+          .pdf-print-overview span { font-size: 18px; font-weight: 800; }
+          .pdf-company-section { break-inside: avoid; margin-top: 18px; }
+          .pdf-company-summary { flex-direction: row; flex-wrap: wrap; margin-bottom: 10px; }
+          table { width: 100%; border-collapse: collapse; font-size: 11px; }
+          th, td { border: 1px solid #cbd5d0; padding: 6px; text-align: left; }
+          @media print { body { padding: 12px; } }
+        `;
+        let printed = false;
+        const print = () => {
+          if (printed || printWindow.closed) return;
+          printed = true;
+          printWindow.focus();
+          printWindow.print();
+        };
+        printWindow.document.open();
+        printWindow.document.write(`<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>Levantamento Financeiro</title><style>${printStyles}</style></head><body>${$("pdfPrintArea").innerHTML}</body></html>`);
+        printWindow.document.close();
+        printWindow.onload = print;
         window.setTimeout(() => {
-          window.print();
+          print();
           $("pdfPrintArea").classList.add("hidden");
-        }, 50);
+        }, 400);
       }
 
       async function loadReport(id, storage = "local") {
