@@ -1494,6 +1494,7 @@
               .filter((p) => p.status === "pending" || p.status === "confirmation")
               .reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
             const hasConfirmation = paymentsForDate.some((p) => p.status === "confirmation");
+            const paymentsToDescribe = paymentsForDate.filter((p) => p.status !== "authorized" && p.status !== "paid");
 
             lines.push(`➡️ *PARA ${dateBR(date)}:*${hasConfirmation ? " _(CONFIRMAÇÃO DE PAGAMENTO)_" : ""}`);
             lines.push(`💵 *Total a pagar:* *${formatCurrencyBR(dayPayable)}*`);
@@ -1501,7 +1502,7 @@
             if (dayPending > 0) lines.push(`✴️ *A autorizar:* *${formatCurrencyBR(dayPending)}*`);
 
             const groups = {};
-            paymentsForDate.forEach((payment) => {
+            paymentsToDescribe.forEach((payment) => {
               const type = paymentRemittanceType(payment);
               const remittanceDate = (type === "standard" || type === "pix") ? paymentRemittanceDate(payment) : "";
               const key = `${type}_${remittanceDate}`;
