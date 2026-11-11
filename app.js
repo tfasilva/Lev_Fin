@@ -2174,7 +2174,10 @@
       });
 
       ["startDate", "endDate", "referenceTime"].forEach((id) => {
-        $(id).addEventListener("change", () => {
+        $(id).addEventListener("change", (event) => {
+          const value = event.target.value;
+          if ((id === "startDate" || id === "endDate") && value && !/^\d{4}-\d{2}-\d{2}$/.test(value)) return;
+          if (id === "referenceTime" && value && !/^\d{2}:\d{2}$/.test(value)) return;
           readMetadata();
           updateWhatsAppPreview();
           scheduleAutoSave();
