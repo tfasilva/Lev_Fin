@@ -1152,6 +1152,10 @@
           input.addEventListener("input", updatePaymentFromInput);
           input.addEventListener("change", (event) => {
             updatePaymentFromInput(event);
+            if (event.target.dataset.field === "dueDate") {
+              renderPayments();
+              return;
+            }
             if (event.target.dataset.field === "remittanceType") {
               const cell = event.target.closest(".remittance-cell");
               const dateInput = cell.querySelector('[data-field="remittanceDate"]');
@@ -1161,9 +1165,11 @@
             }
           });
           if (input.dataset.field === "amount") {
+            input.addEventListener("input", updatePaymentDateTotals);
             input.addEventListener("blur", () => {
               const payment = company.payments[Number(input.closest("[data-payment]").dataset.payment)];
               input.value = formatPaymentAmount(payment.amount);
+              updatePaymentDateTotals();
             });
           }
         });
@@ -1195,6 +1201,21 @@
         });
 
         $("companyTotals").innerHTML = totalsMarkup(company);
+      }
+
+      function updatePaymentDateTotals() {
+        const company = state.draft.companies[state.activeCompany];
+        if (!company) return;
+        $("paymentRows").querySelectorAll(".payment-date-total").forEach((totalRow) => {
+          let row = totalRow.previousElementSibling;
+          let total = 0;
+          while (row && row.matches("tr[data-payment]")) {
+            total += Number(company.payments[Number(row.dataset.payment)]?.amount) || 0;
+            row = row.previousElementSibling;
+          }
+          const value = totalRow.querySelector(".payment-date-total-content strong");
+          if (value) value.textContent = formatCurrencyBR(total);
+        });
       }
 
       function totalsMarkup(company) {
