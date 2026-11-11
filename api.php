@@ -71,14 +71,6 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'OPTIONS') {
     exit;
 }
 
-$apiToken = trim($env['API_TOKEN'] ?? '');
-if ($apiToken !== '') {
-    $authorization = $_SERVER['HTTP_AUTHORIZATION'] ?? '';
-    if (!hash_equals('Bearer ' . $apiToken, $authorization)) {
-        respond(401, ['error' => 'Token de acesso inválido.', 'authRequired' => true]);
-    }
-}
-
 try {
     $host = $env['MYSQL_HOST'] ?? '127.0.0.1';
     $port = (int)($env['MYSQL_PORT'] ?? 3306);
@@ -93,6 +85,49 @@ try {
 
     $path = '/' . trim((string)($_GET['path'] ?? ''), '/');
     $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
+    $apiToken = trim($env['API_TOKEN'] ?? '');
+    $authSecret = trim($env['AUTH_SECRET'] ?? $apiToken);
+    $authorization = $_SERVER['HTTP_AUTHORIZATION'] ?? '';
+    $apiTokenValid = $apiToken !== '' && hash_equals('Bearer ' . $apiToken, $authorization);
+    $storedPasswordHash = $pdo->prepare('SELECT setting_value FROM settings WHERE setting_key = ?');
+    $storedPasswordHash->execute(['authPasswordHash']);
+    $passwordHash = $storedPasswordHash->fetchColumn();
+
+    if ($path === '/auth/status' && $method === 'GET') {
+        respond(200, ['configured' => is_string($passwordHash) && $passwordHash !== '']);
+    }
+    if ($path === '/auth/setup' && $method === 'POST') {
+        if ($apiToken !== '' && !$apiTokenValid) {
+            respond(401, ['error' => 'Token de acesso inválido.', 'authRequired' => true]);
+        }
+        if (is_string($passwordHash) && $passwordHash !== '') {
+            respond(409, ['error' => 'A senha do servidor já foi configurada.']);
+        }
+        $body = jsonBody();
+        $password = is_string($body['password'] ?? null) ? $body['password'] : '';
+        if (strlen($password) < 8) respond(400, ['error' => 'A senha do servidor deve ter pelo menos 8 caracteres.']);
+        $hash = password_hash($password, PASSWORD_DEFAULT);
+        $stmt = $pdo->prepare('INSERT INTO settings (setting_key, setting_value) VALUES (?, ?) ON DUPLICATE KEY UPDATE setting_value = VALUES(setting_value)');
+        $stmt->execute(['authPasswordHash', $hash]);
+        respond(201, ['configured' => true]);
+    }
+    if ($path === '/auth/login' && $method === 'POST') {
+        $body = jsonBody();
+        $password = is_string($body['password'] ?? null) ? $body['password'] : '';
+        if (!is_string($passwordHash) || $passwordHash === '' || !password_verify($password, $passwordHash)) {
+            respond(401, ['error' => 'Senha inválida.']);
+        }
+        if ($authSecret === '') respond(500, ['error' => 'Configure AUTH_SECRET ou API_TOKEN no servidor.']);
+        $sessionToken = hash_hmac('sha256', $passwordHash, $authSecret);
+        respond(200, ['sessionToken' => $sessionToken]);
+    }
+
+    $sessionToken = $authSecret !== '' && is_string($passwordHash) && $passwordHash !== ''
+        ? hash_hmac('sha256', $passwordHash, $authSecret)
+        : '';
+    $authorized = $apiTokenValid
+        || ($sessionToken !== '' && hash_equals('Bearer ' . $sessionToken, $authorization));
+    if ($path !== '/health' && !$authorized) respond(401, ['error' => 'Autenticação necessária.', 'authRequired' => true]);
 
     if ($path === '/health' && $method === 'GET') {
         $pdo->query('SELECT 1')->fetchColumn();

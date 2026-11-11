@@ -3,8 +3,7 @@
 
       const DB_NAME = "levfin-db";
       const DB_VERSION = 2;
-      const COMPANY_COUNT = 5;
-      const DEFAULT_NAMES = ["ATHENAS", "BOA VISTA", "H&C", "K&K", "TAURUS"];
+      const DEFAULT_NAMES = [];
       const AUTOSAVE_KEY = "levfin_autosave_draft_v2";
       const THEME_KEY = "levfin_theme_v2";
       const STORAGE_KEY = "levfin_storage_config_v1";
@@ -33,6 +32,7 @@
         storageMode: "auto", // "auto", "server", "local"
         apiUrl: DEFAULT_API_URL,
         apiToken: "",
+        sessionToken: "",
         serverConnected: false,
         historyUnlocked: false
       };
@@ -40,9 +40,9 @@
       function loadStorageConfig() {
         try {
           const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || "{}");
-          state.storageMode = ["auto", "server", "local"].includes(saved.mode) ? saved.mode : "auto";
+          state.storageMode = "local";
           state.apiUrl = saved.apiUrl || DEFAULT_API_URL;
-          state.apiToken = saved.apiToken || "";
+          state.apiToken = "";
         } catch (_) {
           state.storageMode = "auto";
           state.apiUrl = DEFAULT_API_URL;
@@ -55,10 +55,12 @@
       }
 
       function saveStorageConfig() {
-        state.storageMode = $("storageMode").value;
+        state.storageMode = "local";
+        $("storageMode").value = "local";
         state.apiUrl = $("apiUrlInput").value.trim() || DEFAULT_API_URL;
-        state.apiToken = $("apiTokenInput").value.trim();
-        localStorage.setItem(STORAGE_KEY, JSON.stringify({ mode: state.storageMode, apiUrl: state.apiUrl, apiToken: state.apiToken }));
+        state.apiToken = "";
+        $("apiTokenInput").value = "";
+        localStorage.setItem(STORAGE_KEY, JSON.stringify({ mode: state.storageMode, apiUrl: state.apiUrl, apiToken: "" }));
         updateStorageUiLabels();
       }
 
@@ -98,6 +100,7 @@
         const headers = { "Accept": "application/json" };
         if (body !== undefined) headers["Content-Type"] = "application/json";
         if (state.apiToken) headers.Authorization = `Bearer ${state.apiToken}`;
+        if (state.sessionToken) headers.Authorization = `Bearer ${state.sessionToken}`;
         const response = await fetch(apiEndpoint(path), { method, headers, body: body === undefined ? undefined : JSON.stringify(body) });
         if (!response.ok) {
           let detail = "";
@@ -273,10 +276,46 @@
         notify("Histórico desbloqueado nesta sessão.");
       }
 
+      async function authenticateApplication() {
+        let password = "";
+        if (state.serverConnected) {
+          const serverAuth = await apiRequest("/auth/status");
+          password = window.prompt(serverAuth.configured
+            ? "Informe a senha para acessar os dados do LevFin:"
+            : "Crie a senha do LevFin no servidor (mínimo 8 caracteres):");
+          if (password === null) throw new Error("Autenticação cancelada.");
+          if (!serverAuth.configured) {
+            await apiRequest("/auth/setup", "POST", { password });
+          }
+          const login = await apiRequest("/auth/login", "POST", { password });
+          state.sessionToken = login.sessionToken;
+        } else if (hasHistoryPassword()) {
+          password = window.prompt("Informe a senha para acessar os dados locais do LevFin:");
+          if (password === null) throw new Error("Autenticação cancelada.");
+        } else {
+          password = window.prompt("Crie a senha local do LevFin (mínimo 8 caracteres):");
+          if (password === null) throw new Error("Configuração de segurança cancelada.");
+          if (password.length < 8) throw new Error("A senha deve ter pelo menos 8 caracteres.");
+        }
+
+        const passwordHash = await hashHistoryPassword(password);
+        if (!state.serverConnected && hasHistoryPassword() && passwordHash !== localStorage.getItem(HISTORY_PASSWORD_KEY)) {
+          throw new Error("Senha local inválida.");
+        }
+        localStorage.setItem(HISTORY_PASSWORD_KEY, passwordHash);
+        state.historyUnlocked = true;
+      }
+
       function lockHistory() {
         state.historyUnlocked = false;
+        state.sessionToken = "";
+        if (state.draft) {
+          state.draft = newDraft();
+          state.activeCompany = 0;
+          render();
+        }
         renderHistory().catch(showError);
-        notify("Histórico bloqueado.");
+        notify("Dados bloqueados nesta sessão.");
       }
 
       function requireHistoryAccess() {
@@ -1076,7 +1115,7 @@
           const badgeText = pendingCount > 0 ? `${pendingCount} a autorizar` : `${(company.payments || []).length}`;
           return `
             <button type="button" class="company-tab${index === state.activeCompany ? " active" : ""}" data-company="${index}">
-              <span>${escapeHTML(company.name || DEFAULT_NAMES[index])}</span>
+              <span>${escapeHTML(company.name || `Empresa ${index + 1}`)}</span>
               <span class="${badgeClass}">${badgeText}</span>
             </button>`;
         }).join("");
@@ -1459,7 +1498,8 @@
         options.innerHTML = state.draft.companies.map((company, index) => `
           <label class="pdf-company-option">
             <input type="checkbox" value="${index}" checked>
-            <span>${escapeHTML(company.name || `Empresa ${index + 1}`)}</span>
+            <span class="pdf-company-check" aria-hidden="true">✓</span>
+            <span class="pdf-company-name">${escapeHTML(company.name || `Empresa ${index + 1}`)}</span>
           </label>`).join("");
         $("pdfDialog").showModal();
       }
@@ -1467,7 +1507,7 @@
       function renderPdfArea(selectedIndexes) {
         readMetadata();
         const companies = state.draft.companies.filter((_, index) => selectedIndexes.includes(index));
-        const rowsForCompany = (company) => (company.payments || []).map((payment) => `
+        const rowsForDate = (payments) => payments.map((payment) => `
           <tr>
             <td>${escapeHTML(dateBR(payment.dueDate))}</td>
             <td>${escapeHTML(formatCurrencyBR(Number(payment.amount) || 0))}</td>
@@ -1475,6 +1515,16 @@
             <td>${escapeHTML(payment.status === "paid" ? "Pago" : payment.status === "authorized" ? "Autorizado" : payment.status === "confirmation" ? "Confirmação" : "A autorizar")}</td>
             <td>${escapeHTML(remittanceLabel(payment))}</td>
           </tr>`).join("");
+        const datesForCompany = (company) => getRelevantPaymentDates(company).map((date) => {
+          const payments = (company.payments || []).filter((payment) => payment.dueDate === date);
+          const total = payments.reduce((sum, payment) => sum + (Number(payment.amount) || 0), 0);
+          return `<div class="pdf-date-group">
+            <div class="pdf-date-heading"><span>Vencimentos de ${escapeHTML(dateBR(date))}</span><strong>${payments.length ? `${payments.length} lançamento(s)` : "Sem movimentação"}</strong></div>
+            <table><thead><tr><th>Vencimento</th><th>Valor</th><th>Descrição / Fornecedor</th><th>Situação</th><th>Método / Remessa</th></tr></thead>
+            <tbody>${rowsForDate(payments) || '<tr><td colspan="5" class="pdf-empty">🆗 Sem movimentação.</td></tr>'}</tbody>
+            ${payments.length ? `<tfoot><tr><th colspan="4">Total de ${escapeHTML(dateBR(date))}</th><th>${formatCurrencyBR(total)}</th></tr></tfoot>` : ""}</table>
+          </div>`;
+        }).join("");
         $("pdfPrintArea").innerHTML = `
           <div class="pdf-print-header">
             <h1>Levantamento Diário</h1>
@@ -1495,8 +1545,7 @@
                 <span>A autorizar: <strong>${formatCurrencyBR(totals.pending)}</strong></span>
                 <span>Saldo final: <strong>${formatCurrencyBR((Number(company.balance) || 0) - totals.forecastOutflow)}</strong></span>
               </div>
-              <table><thead><tr><th>Vencimento</th><th>Valor</th><th>Descrição / Fornecedor</th><th>Situação</th><th>Método / Remessa</th></tr></thead>
-              <tbody>${rowsForCompany(company) || '<tr><td colspan="5">Sem movimentação.</td></tr>'}</tbody></table>
+              ${datesForCompany(company)}
             </article>`;
           }).join("")}`;
         $("pdfPrintArea").classList.remove("hidden");
@@ -1512,16 +1561,20 @@
         const printStyles = `
           * { box-sizing: border-box; }
           body { margin: 0; padding: 24px; color: #111; background: #fff; font-family: Arial, sans-serif; font-size: 12px; }
-          h1 { margin: 0; font-size: 24px; }
-          h2 { margin: 22px 0 8px; border-bottom: 2px solid #1d8f68; padding-bottom: 5px; font-size: 18px; }
+          h1 { margin: 0; font-size: 26px; color: #102a24; }
+          h2 { margin: 26px 0 8px; border-bottom: 3px solid #1d8f68; padding-bottom: 7px; color: #102a24; font-size: 19px; }
           p { margin: 6px 0 18px; }
-          .pdf-print-overview { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 20px; }
-          .pdf-print-overview > div, .pdf-company-summary { border: 1px solid #cbd5d0; padding: 10px; display: flex; flex-direction: column; gap: 5px; }
+          .pdf-print-overview { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin: 20px 0 26px; }
+          .pdf-print-overview > div, .pdf-company-summary { border: 1px solid #b8d8c6; border-radius: 6px; padding: 12px; display: flex; flex-direction: column; gap: 5px; background: #f4faf6; }
           .pdf-print-overview span { font-size: 18px; font-weight: 800; }
-          .pdf-company-section { break-inside: avoid; margin-top: 18px; }
-          .pdf-company-summary { flex-direction: row; flex-wrap: wrap; margin-bottom: 10px; }
+          .pdf-company-section { margin-top: 24px; }
+          .pdf-company-summary { flex-direction: row; flex-wrap: wrap; margin-bottom: 12px; }
+          .pdf-date-group { margin: 14px 0; break-inside: avoid; }
+          .pdf-date-heading { display: flex; justify-content: space-between; padding: 8px 10px; background: #e8f4ee; border: 1px solid #b8d8c6; color: #124d38; font-weight: 700; }
           table { width: 100%; border-collapse: collapse; font-size: 11px; }
-          th, td { border: 1px solid #cbd5d0; padding: 6px; text-align: left; }
+          th, td { border: 1px solid #cbd5d0; padding: 7px; text-align: left; }
+          tfoot th { background: #f0f5f2; text-align: right; }
+          .pdf-empty { color: #53665d; font-style: italic; }
           @media print { body { padding: 12px; } }
         `;
         let printed = false;
@@ -1546,7 +1599,7 @@
         const report = storage === "server" ? await apiRequest(`/reports/${id}`) : await storeRequest("reports", "readonly", (store) => store.get(id));
         if (!report) throw new Error("Levantamento não encontrado.");
         report._storage = storage;
-        report.companies.forEach((company, index) => { if (!company.name || company.name === `Empresa ${index + 1}`) company.name = state.companies[index] || DEFAULT_NAMES[index]; });
+        report.companies.forEach((company, index) => { if (!company.name || company.name === `Empresa ${index + 1}`) company.name = state.companies[index] || ""; });
         state.draft = report; state.activeCompany = 0;
         $("saveReportButton").textContent = "💾 Atualizar Levantamento";
         render(); scheduleAutoSave(); notify("Levantamento carregado para consulta ou edição.");
@@ -2036,7 +2089,7 @@
         const inputs = $("settingsGrid").querySelectorAll("[data-company-name-index]");
         const newNames = [];
         inputs.forEach((input, index) => {
-          const val = input.value.trim() || DEFAULT_NAMES[index];
+          const val = input.value.trim();
           newNames.push(val);
         });
         state.companies = newNames;
@@ -2059,14 +2112,21 @@
         notify("Nomes das empresas atualizados com sucesso!");
       }
 
+      function addCompany() {
+        readActiveCompany();
+        state.companies.push("");
+        state.draft.companies.push({ name: "", balance: 0, payments: [], referenceTime: "" });
+        renderCompanySettings();
+        renderTabs();
+        scheduleAutoSave();
+      }
+
       async function resetCompanyNames() {
         if (!window.confirm("Restaurar os nomes das empresas para o padrão?")) return;
-        state.companies = [...DEFAULT_NAMES];
-        if (state.draft && state.draft.companies) {
-          state.draft.companies.forEach((comp, idx) => {
-            comp.name = state.companies[idx];
-          });
-        }
+        state.companies = [""];
+        state.draft.companies.forEach((comp) => { comp.name = ""; });
+        state.companies = state.draft.companies.map(() => "");
+        state.activeCompany = Math.min(state.activeCompany, state.draft.companies.length - 1);
         await storeRequest("settings", "readwrite", (store) => store.put({ key: "companyNames", value: state.companies }));
         if (state.serverConnected) {
           try {
@@ -2121,7 +2181,7 @@
           for (const report of data.reports) {
             await storeRequest("reports", "readwrite", (store) => store.put(report));
           }
-          if (Array.isArray(data.companies) && data.companies.length === COMPANY_COUNT) {
+          if (Array.isArray(data.companies) && data.companies.length > 0) {
             state.companies = data.companies;
             await storeRequest("settings", "readwrite", (store) => store.put({ key: "companyNames", value: state.companies }));
           }
@@ -2201,31 +2261,21 @@
         loadStorageConfig();
         try {
           state.db = await openDatabase();
+          state.storageMode = "local";
+          state.serverConnected = false;
+          state.sessionToken = "";
+          setStorageStatus("local", "Modo Local (Navegador)");
 
           // Inicializar conexão com o servidor MySQL (se não estiver em modo exclusivamente local)
-          await checkServerConnection(false);
-
           let savedNames = [];
-          if (state.serverConnected) {
-            try {
-              const remoteNames = await apiRequest("/settings/company-names");
-              if (Array.isArray(remoteNames) && remoteNames.length === COMPANY_COUNT) {
-                savedNames = remoteNames;
-              }
-            } catch (_) {}
+          const savedSettings = await storeRequest("settings", "readonly", (store) => store.get("companyNames"));
+          if (savedSettings && Array.isArray(savedSettings.value)) {
+            savedNames = savedSettings.value;
           }
 
-          if (!savedNames.length) {
-            const savedSettings = await storeRequest("settings", "readonly", (store) => store.get("companyNames"));
-            if (savedSettings && Array.isArray(savedSettings.value) && savedSettings.value.length === COMPANY_COUNT) {
-              savedNames = savedSettings.value;
-            }
-          }
-
-          state.companies = DEFAULT_NAMES.map((defaultName, index) => {
-            const savedName = typeof savedNames[index] === "string" ? savedNames[index].trim() : "";
-            return !savedName || savedName === `Empresa ${index + 1}` ? defaultName : savedName;
-          });
+          state.companies = savedNames.length
+            ? savedNames.map((name) => typeof name === "string" ? name.trim() : "")
+            : [""];
 
           if (JSON.stringify(savedNames) !== JSON.stringify(state.companies)) {
             await storeRequest("settings", "readwrite", (store) => store.put({ key: "companyNames", value: state.companies }));
@@ -2241,6 +2291,7 @@
           } else {
             state.draft = newDraft();
           }
+          state.historyUnlocked = true;
 
           render();
           setupClipboardAndDropZone();
@@ -2404,6 +2455,7 @@
       });
 
       $("saveCompanyNamesBtn").addEventListener("click", () => saveCompanyNames().catch(showError));
+      $("addCompanyBtn").addEventListener("click", addCompany);
       $("resetCompanyNamesBtn").addEventListener("click", () => resetCompanyNames().catch(showError));
 
       $("backupExportBtn").addEventListener("click", () => exportBackup().catch(showError));

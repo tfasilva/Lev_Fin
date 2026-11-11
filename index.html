@@ -36,9 +36,7 @@
     <section class="storage-settings hidden" id="storageSettings" aria-label="Configuração de armazenamento">
       <label class="storage-mode-field">Modo de Armazenamento
         <select id="storageMode">
-          <option value="auto">Servidor MySQL (Automático: com cópia no navegador)</option>
-          <option value="server">Somente Servidor MySQL</option>
-          <option value="local">Somente Neste Navegador (Offline / Sem banco)</option>
+          <option value="local">Somente Neste Navegador (Offline / Sem servidor)</option>
         </select>
       </label>
       <label class="storage-api-field">Endereço da API (PHP / Servidor)
@@ -52,7 +50,7 @@
         <button class="button small" id="toggleConnectButton" type="button">🔌 Desconectar Servidor</button>
       </div>
       <p class="storage-help" id="storageHelpText">
-        💡 <b>Dica:</b> No modo <b>Automático</b>, o sistema usa o banco de dados MySQL sempre que o servidor estiver ligado. Caso esteja desconectado ou offline, o sistema continuará funcionando normalmente salvando no banco local do navegador (IndexedDB).
+        💡 <b>Modo local:</b> os dados ficam somente neste navegador. Use <b>Salvar PDF</b> ou <b>Exportar Excel</b> para guardar uma cópia no computador.
       </p>
     </section>
 
@@ -277,6 +275,7 @@
         <div class="settings-grid" id="settingsGrid"></div>
         <div style="margin-top: 14px; display: flex; gap: 8px; flex-wrap: wrap;">
           <button class="button small primary" id="saveCompanyNamesBtn" type="button">Salvar Nomes</button>
+          <button class="button small" id="addCompanyBtn" type="button">＋ Adicionar Empresa</button>
           <button class="button small" id="resetCompanyNamesBtn" type="button">Restaurar Nomes Padrão</button>
         </div>
 

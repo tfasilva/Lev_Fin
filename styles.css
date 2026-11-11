@@ -1273,10 +1273,43 @@
       display: flex;
       gap: 8px;
       align-items: center;
-      padding: 9px 10px;
+      min-height: 48px;
+      padding: 8px 12px;
       border: 1px solid var(--line);
       border-radius: var(--radius-sm);
       background: var(--paper);
+      cursor: pointer;
+      transition: border-color .15s ease, background .15s ease;
+    }
+    .pdf-company-option:hover {
+      border-color: var(--green);
+      background: var(--green-pale);
+    }
+    .pdf-company-option input {
+      position: absolute;
+      opacity: 0;
+      pointer-events: none;
+    }
+    .pdf-company-check {
+      width: 24px;
+      height: 24px;
+      display: grid;
+      place-items: center;
+      border: 2px solid var(--muted);
+      border-radius: 6px;
+      color: transparent;
+      font-weight: 900;
+      background: var(--canvas);
+    }
+    .pdf-company-option input:checked + .pdf-company-check {
+      border-color: var(--green);
+      color: #fff;
+      background: var(--green);
+    }
+    .pdf-company-name {
+      flex: 1;
+      font-size: 13px;
+      font-weight: 700;
     }
     .pdf-dialog-actions { display: flex; justify-content: flex-end; gap: 8px; flex-wrap: wrap; }
     .pdf-print-area { background: #fff; color: #111; padding: 24px; }
@@ -1296,6 +1329,22 @@
     .pdf-company-summary { flex-direction: row; flex-wrap: wrap; margin-bottom: 10px; }
     .pdf-company-section table { width: 100%; border-collapse: collapse; font-size: 11px; }
     .pdf-company-section th, .pdf-company-section td { border: 1px solid #cbd5d0; padding: 6px; text-align: left; }
+    .pdf-date-group { margin: 14px 0; break-inside: avoid; }
+    .pdf-date-heading {
+      display: flex;
+      justify-content: space-between;
+      padding: 8px 10px;
+      background: #e8f4ee;
+      border: 1px solid #b8d8c6;
+      color: #124d38;
+      font-weight: 700;
+    }
+    .pdf-company-section tfoot th {
+      background: #f0f5f2;
+      text-align: right;
+      font-weight: 800;
+    }
+    .pdf-empty { color: #53665d; font-style: italic; }
 
     /* Responsividade */
     @media (max-width: 960px) {

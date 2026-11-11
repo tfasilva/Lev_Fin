@@ -1,13 +1,10 @@
 # LevFin com XAMPP ou GitHub Pages
 
-A página pode funcionar de duas formas:
-
-- **GitHub Pages:** use o armazenamento local do navegador (IndexedDB), sem servidor.
-- **XAMPP:** use PHP + MariaDB/MySQL para compartilhar os levantamentos no servidor local.
+A página funciona por padrão em modo local, usando o IndexedDB do navegador. O servidor PHP/MySQL permanece apenas como código opcional para instalações futuras.
 
 No modo local, os dados ficam neste navegador e dispositivo. Para não perder informações ao trocar de computador ou limpar os dados do site, use regularmente os botões **Baixar Backup JSON** e **Restaurar Backup JSON**.
 
-O histórico salvo fica bloqueado após cada recarregamento da página. Defina uma senha em **Configurações das Empresas e Segurança dos Dados** para desbloquear os levantamentos anteriores. A senha não é enviada ao servidor; somente seu hash é mantido no navegador. Isso impede a visualização acidental por outra sessão do navegador, mas não substitui a criptografia do dispositivo nem protege contra alguém com acesso técnico ao perfil do navegador.
+Cada navegador mantém seu próprio rascunho, nomes de empresas e histórico. Um navegador ou computador novo começa vazio; o mesmo navegador preserva os dados criados nele. Para guardar ou transportar um levantamento, use **Salvar PDF** ou **Exportar Excel**.
 
 ## Requisitos
 
@@ -16,9 +13,9 @@ O histórico salvo fica bloqueado após cada recarregamento da página. Defina u
 
 ## Uso no GitHub Pages
 
-Publique `index.html`, `app.js`, `styles.css` e `por.traineddata` no GitHub Pages. Na aplicação, abra as configurações de armazenamento e selecione **Somente Neste Navegador (Offline / Sem banco)**.
+Publique `index.html`, `app.js`, `styles.css` e `por.traineddata` no GitHub Pages. A aplicação inicia diretamente em **Somente Neste Navegador (Offline / Sem servidor)**.
 
-O GitHub Pages não executa PHP nem fornece MySQL. Portanto, os arquivos `api.php`, `schema.sql` e `deploy-xampp.ps1` não são necessários para o modo local e o servidor MySQL não será acessível automaticamente por outros computadores.
+O GitHub Pages não executa PHP nem fornece MySQL. Para usar a mesma senha e os mesmos dados em computadores diferentes, mantenha a API PHP/MySQL publicada em um servidor HTTPS e informe a URL da API nas configurações. O GitHub Pages sozinho continua limitado ao banco local de cada navegador.
 
 ## Configuração local com XAMPP
 
@@ -37,3 +34,5 @@ Ao importar um print com vencimentos reconhecidos, as datas inicial e final do l
 ## Segurança
 
 O usuário MySQL `levfin_app` tem somente permissões de leitura e gravação no banco `levfin`. A API aceita chamadas do Live Server local configuradas em `WEB_ORIGIN`. Para acesso pela rede, defina `API_TOKEN` com pelo menos 24 caracteres, ajuste `WEB_ORIGIN` e proteja o Apache com HTTPS e firewall. Nunca publique `.env` ou tokens no GitHub Pages.
+
+Para a proteção combinada entre computadores, a API cria a senha do servidor no primeiro acesso e armazena somente um hash usando `password_hash`. Depois do login, o navegador usa um token de sessão derivado no servidor; a senha não é enviada nas consultas de relatórios. Configure `AUTH_SECRET` no `.env` com um segredo longo e privado (ou mantenha `API_TOKEN` configurado para que ele seja usado como segredo de fallback). A proteção da interface não substitui HTTPS, controle de acesso ao servidor ou criptografia do disco: alguém com acesso técnico ao perfil do navegador ainda pode inspecionar o IndexedDB local.
