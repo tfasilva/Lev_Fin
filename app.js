@@ -1554,13 +1554,21 @@
         return includeHeading ? lines : lines.slice(2);
       }
 
+      function formatWhatsAppPeriodHeader() {
+        const toShortDate = (date) => {
+          const formatted = dateBR(date);
+          return formatted === "—" ? formatted : formatted.slice(0, 6) + formatted.slice(-2);
+        };
+        const start = toShortDate(state.draft.startDate);
+        const end = toShortDate(state.draft.endDate);
+        const time = state.draft.referenceTime || "--:--";
+        return ["*Levantamento de Pagamentos*", `*De ${start} a ${end} - ${time}*`];
+      }
+
       function formatWhatsApp() {
         if (!state.draft) return "";
         readMetadata();
-        const start = dateBR(state.draft.startDate);
-        const end = dateBR(state.draft.endDate);
-        const time = state.draft.referenceTime ? ` até as ${state.draft.referenceTime}h` : "";
-        const lines = [`📊 *LEVANTAMENTO FINANCEIRO*`, `📅 Período: *${start} a ${end}${time}*`, ""];
+        const lines = [...formatWhatsAppPeriodHeader(), ""];
 
         state.draft.companies.forEach((company, index) => {
           lines.push(...formatCompanyWhatsApp(company, index));
@@ -1715,7 +1723,7 @@
         const company = state.draft && state.draft.companies[state.activeCompany];
         if (!company) return;
         $("companyPreviewName").textContent = company.name || `Empresa ${state.activeCompany + 1}`;
-        $("companyWhatsAppPreview").textContent = formatCompanyWhatsApp(company, state.activeCompany).join("\n");
+        $("companyWhatsAppPreview").textContent = [...formatWhatsAppPeriodHeader(), "", ...formatCompanyWhatsApp(company, state.activeCompany)].join("\n");
       }
 
       function openWhatsApp() {
@@ -1779,13 +1787,24 @@
       function addPayment() {
         readActiveCompany();
         const company = state.draft.companies[state.activeCompany];
+        const hasPayments = state.draft.companies.some((item) => (item.payments || []).length > 0);
+        const firstPaymentDate = state.draft.endDate || todayISO();
+        if (!hasPayments) {
+          const currentTime = new Date().toTimeString().slice(0, 5);
+          state.draft.startDate = state.draft.startDate || firstPaymentDate;
+          state.draft.endDate = state.draft.endDate || firstPaymentDate;
+          state.draft.referenceTime = state.draft.referenceTime || currentTime;
+          $("startDate").value = state.draft.startDate;
+          $("endDate").value = state.draft.endDate;
+          $("referenceTime").value = state.draft.referenceTime;
+        }
         company.payments.push({
-          dueDate: state.draft.endDate || todayISO(),
+          dueDate: firstPaymentDate,
           amount: "",
           description: "",
           status: "pending",
           remittanceType: "standard",
-          remittanceDate: state.draft.endDate || todayISO()
+          remittanceDate: firstPaymentDate
         });
         renderPayments();
         renderTabs();
