@@ -145,7 +145,12 @@
           startDate: todayISO(),
           endDate: todayISO(),
           referenceTime: new Date().toTimeString().slice(0, 5),
-          companies: state.companies.map((name) => ({ name, balance: 0, payments: [] }))
+          companies: state.companies.map((name) => ({
+            name,
+            balance: 0,
+            payments: [],
+            referenceTime: ""
+          }))
         };
       }
 
@@ -989,6 +994,7 @@
 
       function importOcrRows() {
         const company = state.draft.companies[state.importCompanyIndex];
+        if (!company.referenceTime) company.referenceTime = new Date().toTimeString().slice(0, 5);
         state.importRows.forEach((row, index) => {
           if (!row.dueDate || row.amount === "" || !Number.isFinite(Number(row.amount)) || Number(row.amount) < 0 || !row.description.trim()) {
             throw new Error(`Confira vencimento, valor e fornecedor/histórico do lançamento ${index + 1}.`);
@@ -1458,12 +1464,22 @@
       /* Formatação WhatsApp 100% Fiel ao Modelo Padrão */
       const WHATSAPP_SEPARATOR = "────────────────────";
 
+      function getCompanyPeriod(company) {
+        const paymentDates = (company.payments || []).map((p) => p.dueDate).filter(Boolean).sort();
+        return {
+          startDate: company.startDate || paymentDates[0] || state.draft.startDate,
+          endDate: company.endDate || paymentDates[paymentDates.length - 1] || state.draft.endDate,
+          referenceTime: company.referenceTime || state.draft.referenceTime
+        };
+      }
+
       function getRelevantPaymentDates(company) {
         const paymentDates = (company.payments || []).map((p) => p.dueDate).filter(Boolean);
-        if (!state.draft.startDate || !state.draft.endDate) return [...new Set(paymentDates)].sort();
+        const period = getCompanyPeriod(company);
+        if (!period.startDate || !period.endDate) return [...new Set(paymentDates)].sort();
 
-        const minDate = [state.draft.startDate, ...paymentDates].sort()[0];
-        const maxDate = [state.draft.endDate, ...paymentDates].sort().reverse()[0];
+        const minDate = [period.startDate, ...paymentDates].sort()[0];
+        const maxDate = [period.endDate, ...paymentDates].sort().reverse()[0];
         const dates = [];
         const current = parseISODate(minDate);
         const end = parseISODate(maxDate);
@@ -1495,7 +1511,8 @@
 
         const allDates = getRelevantPaymentDates(company);
         if (allDates.length === 0) {
-          lines.push(`➡️ *PARA ${dateBR(state.draft.startDate)}:* 🆗 Sem movimentação.`);
+          const period = getCompanyPeriod(company);
+          lines.push(`➡️ *PARA ${dateBR(period.startDate)}:* 🆗 Sem movimentação.`);
           lines.push(WHATSAPP_SEPARATOR);
         } else {
           allDates.forEach((date, dateIndex) => {
@@ -1554,23 +1571,25 @@
         return includeHeading ? lines : lines.slice(2);
       }
 
-      function formatWhatsAppPeriodHeader() {
+      function formatWhatsAppPeriodHeader(company = null) {
         const toShortDate = (date) => {
           const formatted = dateBR(date);
           return formatted === "—" ? formatted : formatted.slice(0, 6) + formatted.slice(-2);
         };
-        const start = toShortDate(state.draft.startDate);
-        const end = toShortDate(state.draft.endDate);
-        const time = state.draft.referenceTime || "--:--";
+        const period = company ? getCompanyPeriod(company) : state.draft;
+        const start = toShortDate(period.startDate);
+        const end = toShortDate(period.endDate);
+        const time = period.referenceTime || "--:--";
         return ["*Levantamento de Pagamentos*", `*De ${start} a ${end} - ${time}*`];
       }
 
       function formatWhatsApp() {
         if (!state.draft) return "";
         readMetadata();
-        const lines = [...formatWhatsAppPeriodHeader(), ""];
-
+        const lines = [];
         state.draft.companies.forEach((company, index) => {
+          lines.push(...formatWhatsAppPeriodHeader(company));
+          lines.push("");
           lines.push(...formatCompanyWhatsApp(company, index));
           lines.push("");
           lines.push(WHATSAPP_SEPARATOR);
@@ -1711,7 +1730,7 @@
       async function copyCompanyWhatsApp() {
         const company = state.draft && state.draft.companies[state.activeCompany];
         if (!company) return;
-        const text = formatCompanyWhatsApp(company, state.activeCompany).join("\n");
+        const text = [...formatWhatsAppPeriodHeader(company), "", ...formatCompanyWhatsApp(company, state.activeCompany)].join("\n");
         if (!navigator.clipboard || !navigator.clipboard.writeText) {
           throw new Error("A cópia automática não está disponível neste navegador.");
         }
@@ -1723,7 +1742,7 @@
         const company = state.draft && state.draft.companies[state.activeCompany];
         if (!company) return;
         $("companyPreviewName").textContent = company.name || `Empresa ${state.activeCompany + 1}`;
-        $("companyWhatsAppPreview").textContent = [...formatWhatsAppPeriodHeader(), "", ...formatCompanyWhatsApp(company, state.activeCompany)].join("\n");
+        $("companyWhatsAppPreview").textContent = [...formatWhatsAppPeriodHeader(company), "", ...formatCompanyWhatsApp(company, state.activeCompany)].join("\n");
       }
 
       function openWhatsApp() {
@@ -1789,6 +1808,7 @@
         const company = state.draft.companies[state.activeCompany];
         const hasPayments = state.draft.companies.some((item) => (item.payments || []).length > 0);
         const firstPaymentDate = state.draft.endDate || todayISO();
+        if (!company.referenceTime) company.referenceTime = new Date().toTimeString().slice(0, 5);
         if (!hasPayments) {
           const currentTime = new Date().toTimeString().slice(0, 5);
           state.draft.startDate = state.draft.startDate || firstPaymentDate;
