@@ -1554,30 +1554,35 @@
         const rowsForDate = (payments) => {
           const pending = payments.filter((p) => p.status !== "authorized" && p.status !== "paid");
           const settled = payments.filter((p) => p.status === "authorized" || p.status === "paid");
-          const block = (list, heading, emptyClass) => {
+          const line = (payment) => `
+            <tr>
+              <td>${escapeHTML(dateBR(payment.dueDate))}</td>
+              <td>${escapeHTML(formatCurrencyBR(Number(payment.amount) || 0))}</td>
+              <td>${escapeHTML(payment.description || "Sem descrição")}</td>
+              <td>${escapeHTML(statusLabel(payment))}</td>
+              <td>${escapeHTML(remittanceLabel(payment))}</td>
+            </tr>`;
+          const footer = (list, label, icon) => {
             if (!list.length) return "";
             const total = list.reduce((sum, payment) => sum + (Number(payment.amount) || 0), 0);
-            return `
-              <div class="pdf-status-heading ${emptyClass || ""}">${heading} — <strong>${formatCurrencyBR(total)}</strong></div>
-              <table><thead><tr><th>Vencimento</th><th>Valor</th><th>Descrição / Fornecedor</th><th>Situação</th><th>Método / Remessa</th></tr></thead>
-              <tbody>${list.map((payment) => `
-                <tr>
-                  <td>${escapeHTML(dateBR(payment.dueDate))}</td>
-                  <td>${escapeHTML(formatCurrencyBR(Number(payment.amount) || 0))}</td>
-                  <td>${escapeHTML(payment.description || "Sem descrição")}</td>
-                  <td>${escapeHTML(statusLabel(payment))}</td>
-                  <td>${escapeHTML(remittanceLabel(payment))}</td>
-                </tr>`).join("")}</tbody>
-              <tfoot><tr><th colspan="4">Total ${heading}</th><th>${formatCurrencyBR(total)}</th></tr></tfoot></table>`;
+            return `<tr class="pdf-group-total"><td colspan="4">Total ${icon} ${label}</td><td>${formatCurrencyBR(total)}</td></tr>`;
           };
-          return block(settled, "✅ Autorizados / Pagos", "pdf-status-settled") + block(pending, "✴️ A Autorizar", "pdf-status-pending");
+          const all = [...settled, ...pending];
+          if (!all.length) return '<div class="pdf-empty">🆗 Sem movimentação.</div>';
+          return `
+            <table>
+              <thead><tr><th>Vencimento</th><th>Valor</th><th>Descrição / Fornecedor</th><th>Situação</th><th>Método / Remessa</th></tr></thead>
+              <tbody>${all.map(line).join("")}</tbody>
+              ${footer(settled, "Autorizados / Pagos", "✅")}
+              ${footer(pending, "A Autorizar", "✴️")}
+            </table>`;
         };
         const datesForCompany = (company) => getRelevantPaymentDates(company).map((date) => {
           const payments = (company.payments || []).filter((payment) => payment.dueDate === date);
           const total = payments.reduce((sum, payment) => sum + (Number(payment.amount) || 0), 0);
           return `<div class="pdf-date-group">
             <div class="pdf-date-heading"><span>Vencimentos de ${escapeHTML(dateBR(date))}</span><strong>${payments.length ? `${payments.length} lançamento(s)` : "Sem movimentação"}</strong></div>
-            ${rowsForDate(payments) || '<div class="pdf-empty">🆗 Sem movimentação.</div>'}
+            ${rowsForDate(payments)}
           </div>`;
         }).join("");
         $("pdfPrintArea").innerHTML = `
@@ -1586,7 +1591,19 @@
             <p>Período: ${escapeHTML(dateBR(state.draft.startDate))} a ${escapeHTML(dateBR(state.draft.endDate))} · ${escapeHTML(state.draft.referenceTime || "--:--")}</p>
           </div>
           <div class="pdf-print-overview">
-            <div><strong>Saldo Consolidado</strong><span>${formatCurrencyBR(companies.reduce((sum, c) => sum + (Number(c.balance) || 0), 0))}</span></div>
+            <div class="pdf-overview-total">
+              <strong>Saldo Consolidado</strong>
+              <span>${formatCurrencyBR(companies.reduce((sum, c) => sum + (Number(c.balance) || 0), 0))}</span>
+            </div>
+            <div class="pdf-overview-companies">
+              ${companies.map((company, index) => `
+                <div class="pdf-overview-company-row">
+                  <span title="${escapeHTML(company.name || `Empresa ${index + 1}`)}">${escapeHTML(company.name || `Empresa ${index + 1}`)}</span>
+                  <strong>${formatCurrencyBR(Number(company.balance) || 0)}</strong>
+                </div>`).join("")}
+            </div>
+          </div>
+          <div class="pdf-print-overview">
             <div><strong>Total a Autorizar</strong><span>${formatCurrencyBR(companies.reduce((sum, c) => sum + paymentTotals(c).pending, 0))}</span></div>
             <div><strong>Previsão de Saldo Final</strong><span>${formatCurrencyBR(companies.reduce((sum, c) => sum + (Number(c.balance) || 0) - paymentTotals(c).forecastOutflow, 0))}</span></div>
           </div>
@@ -1624,6 +1641,14 @@
           .pdf-print-overview { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin: 20px 0 26px; }
           .pdf-print-overview > div, .pdf-company-summary { border: 1px solid #b8d8c6; border-radius: 6px; padding: 12px; display: flex; flex-direction: column; gap: 5px; background: #f4faf6; }
           .pdf-print-overview span { font-size: 18px; font-weight: 800; }
+          .pdf-overview-total { border: 1px solid #1d8f68; border-radius: 6px; padding: 14px 16px; background: #e8f4ee; margin: 20px 0 10px; }
+          .pdf-overview-total strong { display: block; font-size: 13px; color: #124d38; text-transform: uppercase; letter-spacing: 0.4px; }
+          .pdf-overview-total span { font-size: 24px; font-weight: 800; color: #102a24; }
+          .pdf-overview-companies { border: 1px solid #b8d8c6; border-radius: 6px; padding: 6px 12px; background: #f4faf6; margin: 0 0 26px; }
+          .pdf-overview-company-row { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 7px 0; border-bottom: 1px solid #dcebe2; font-size: 12px; }
+          .pdf-overview-company-row:last-child { border-bottom: none; }
+          .pdf-overview-company-row span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+          .pdf-overview-company-row strong { white-space: nowrap; }
           .pdf-company-section { margin-top: 24px; }
           .pdf-company-summary { flex-direction: row; flex-wrap: wrap; margin-bottom: 12px; }
           .pdf-date-group { margin: 14px 0; }
@@ -1632,8 +1657,10 @@
           .pdf-status-settled { background: #e6f4ea; color: #14532d; }
           .pdf-status-pending { background: #fdf3e0; color: #7c4a03; }
           table { width: 100%; border-collapse: collapse; font-size: 11px; }
+          thead th { text-align: center; }
           th, td { border: 1px solid #cbd5d0; padding: 7px; text-align: left; }
-          tfoot th { background: #f0f5f2; text-align: right; }
+          tfoot th, .pdf-group-total td { background: #f0f5f2; text-align: right; }
+          .pdf-group-total td:first-child { text-align: right; font-weight: 700; }
           .pdf-empty { color: #53665d; font-style: italic; }
           @media print {
             body { padding: 12px; }
