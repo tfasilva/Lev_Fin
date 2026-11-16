@@ -152,6 +152,8 @@
             name,
             balance: 0,
             payments: [],
+            startDate: "",
+            endDate: "",
             referenceTime: ""
           }))
         };
@@ -427,6 +429,8 @@
             localStorage.setItem(AUTOSAVE_KEY, JSON.stringify(state.draft));
             const now = new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
             $("autoSaveIndicator").textContent = `⚡ Salvo às ${now}`;
+            // Salva também no histórico automaticamente (mesmo levantamento = sobrescreve)
+            scheduleHistoryAutoSave();
           } catch (e) {
             console.warn("Falha no auto-save:", e);
           }
@@ -480,16 +484,21 @@
           .sort();
         if (!dates.length) return false;
 
-        const existingDates = state.draft.companies
-          .flatMap((company) => (company.payments || []).map((payment) => payment.dueDate))
-          .filter((date) => /^\d{4}-\d{2}-\d{2}$/.test(date))
-          .sort();
+        const targetCompany = state.draft.companies[state.importCompanyIndex];
+        const existingDates = (targetCompany?.payments || [])
+          .map((payment) => payment.dueDate)
+          .filter((date) => /^\d{4}-\d{2}-\d{2}$/.test(date));
         const allDates = [...existingDates, ...dates].sort();
         const startDate = allDates[0];
         const endDate = allDates[allDates.length - 1];
 
-        state.draft.startDate = startDate;
-        state.draft.endDate = endDate;
+        // Período individual da empresa que está recebendo a importação
+        if (targetCompany) {
+          targetCompany.startDate = startDate;
+          targetCompany.endDate = endDate;
+        }
+        state.draft.startDate = state.draft.startDate || startDate;
+        state.draft.endDate = state.draft.endDate || endDate;
         $("startDate").value = startDate;
         $("endDate").value = endDate;
         return true;
@@ -1167,7 +1176,8 @@
         $("paymentRows").innerHTML = paymentsToRender.map((payment, index) => {
           const originalIndex = company.payments.indexOf(payment);
           const remType = paymentRemittanceType(payment);
-          const hidesDate = remType === "manual" || remType === "gestao";
+          const hidesDate = remType === "manual" || remType === "gestao" || payment.status === "authorized" || payment.status === "paid";
+          const hidesRemittance = payment.status === "authorized" || payment.status === "paid";
           const remClass = hidesDate ? "remittance-cell" : "remittance-cell has-date";
           const isLastOfDate = index === paymentsToRender.length - 1 || paymentsToRender[index + 1].dueDate !== payment.dueDate;
           const dateLabel = payment.dueDate ? dateBR(payment.dueDate) : "Data não informada";
@@ -1191,13 +1201,14 @@
                 </select>
               </td>
               <td class="${remClass}" data-label="Método / Remessa">
+                ${hidesRemittance ? `<span class="remittance-not-needed" style="color: var(--muted); font-size: 12px;">— ${payment.status === "paid" ? "Pago" : "Autorizado"} (não se aplica)</span>` : `
                 <select aria-label="Método bancário" data-field="remittanceType">
                   <option value="standard"${remType === "standard" ? " selected" : ""}>✉️ Remessa</option>
                   <option value="pix"${remType === "pix" ? " selected" : ""}>✉️ Remessa_PIX</option>
                   <option value="manual"${remType === "manual" ? " selected" : ""}>📝 Lançamento Manual</option>
                   <option value="gestao"${remType === "gestao" ? " selected" : ""}>📝 Lançamento Gestão</option>
                 </select>
-                <input aria-label="Data da remessa" type="date" data-field="remittanceDate" value="${escapeHTML(paymentRemittanceDate(payment))}"${hidesDate ? ' class="hidden"' : ""}>
+                <input aria-label="Data da remessa" type="date" data-field="remittanceDate" value="${escapeHTML(paymentRemittanceDate(payment))}"${hidesDate ? ' class="hidden"' : ""}>`}
               </td>
               <td style="text-align: center;">
                 <div class="row-actions">
@@ -1339,6 +1350,10 @@
         if (company) {
           const val = $("balanceInput").value;
           company.balance = val === "" ? 0 : (parsePaymentAmount(val) || 0);
+          // Período individual da empresa (lançamento individual)
+          company.startDate = $("startDate").value;
+          company.endDate = $("endDate").value;
+          company.referenceTime = $("referenceTime").value;
         }
       }
 
@@ -1347,6 +1362,13 @@
         state.draft.startDate = $("startDate").value;
         state.draft.endDate = $("endDate").value;
         state.draft.referenceTime = $("referenceTime").value;
+        // Período individual por empresa (lançamento individual)
+        const activeCompany = state.draft.companies[state.activeCompany];
+        if (activeCompany) {
+          activeCompany.startDate = $("startDate").value;
+          activeCompany.endDate = $("endDate").value;
+          activeCompany.referenceTime = $("referenceTime").value;
+        }
         readActiveCompany();
       }
 
@@ -1453,7 +1475,9 @@
               throw new Error(`Confira os valores dos lançamentos de ${company.name}.`);
             }
             const remType = paymentRemittanceType(payment);
-            if ((remType === "standard" || remType === "pix") && !paymentRemittanceDate(payment)) {
+            // Lançamentos autorizados ou pagos dispensam método/remessa
+            const needsRemittance = payment.status !== "authorized" && payment.status !== "paid";
+            if (needsRemittance && (remType === "standard" || remType === "pix") && !paymentRemittanceDate(payment)) {
               throw new Error(`Informe a data da remessa de ${company.name}.`);
             }
             if (!payment.dueDate) throw new Error(`Informe o vencimento de todos os lançamentos de ${company.name}.`);
@@ -1462,8 +1486,13 @@
         }
       }
 
-      async function saveReport() {
-        readMetadata(); validateDraft();
+      async function saveReport(silent = false) {
+        readMetadata();
+        if (silent) {
+          try { validateDraft(); } catch (_) { return; }
+        } else {
+          validateDraft();
+        }
         const record = JSON.parse(JSON.stringify(state.draft));
         record.savedAt = new Date().toISOString(); delete record._storage;
         const existingLocalId = Number.isInteger(Number(state.draft.id)) && Number(state.draft.id) > 0
@@ -1489,8 +1518,22 @@
           state.draft._storage = "local";
         }
         $("saveReportButton").textContent = "💾 Atualizar Levantamento";
-        notify(state.draft._storage === "server" ? "Levantamento salvo no servidor MySQL." : "Levantamento salvo neste navegador.");
+        if (!silent) notify(state.draft._storage === "server" ? "Levantamento salvo no servidor MySQL." : "Levantamento salvo neste navegador.");
         await renderHistory();
+      }
+
+      /* Salvamento Automático no Histórico (mesmo levantamento = sobrescreve; novo = cria) */
+      let historyAutoSaveTimer = null;
+      function scheduleHistoryAutoSave() {
+        clearTimeout(historyAutoSaveTimer);
+        historyAutoSaveTimer = setTimeout(() => {
+          // Não salva no histórico se não houver nada lançado ainda
+          const hasContent = state.draft && state.draft.companies.some((c) =>
+            (c.payments || []).length > 0 || (Number(c.balance) || 0) !== 0
+          );
+          if (!hasContent) return;
+          saveReport(true).catch((e) => console.warn("Auto-save do histórico falhou:", e));
+        }, 1500);
       }
 
       function openPdfDialog() {
@@ -1507,22 +1550,34 @@
       function renderPdfArea(selectedIndexes) {
         readMetadata();
         const companies = state.draft.companies.filter((_, index) => selectedIndexes.includes(index));
-        const rowsForDate = (payments) => payments.map((payment) => `
-          <tr>
-            <td>${escapeHTML(dateBR(payment.dueDate))}</td>
-            <td>${escapeHTML(formatCurrencyBR(Number(payment.amount) || 0))}</td>
-            <td>${escapeHTML(payment.description || "Sem descrição")}</td>
-            <td>${escapeHTML(payment.status === "paid" ? "Pago" : payment.status === "authorized" ? "Autorizado" : payment.status === "confirmation" ? "Confirmação" : "A autorizar")}</td>
-            <td>${escapeHTML(remittanceLabel(payment))}</td>
-          </tr>`).join("");
+        const statusLabel = (payment) => payment.status === "paid" ? "Pago" : payment.status === "authorized" ? "Autorizado" : payment.status === "confirmation" ? "Confirmação" : "A autorizar";
+        const rowsForDate = (payments) => {
+          const pending = payments.filter((p) => p.status !== "authorized" && p.status !== "paid");
+          const settled = payments.filter((p) => p.status === "authorized" || p.status === "paid");
+          const block = (list, heading, emptyClass) => {
+            if (!list.length) return "";
+            const total = list.reduce((sum, payment) => sum + (Number(payment.amount) || 0), 0);
+            return `
+              <div class="pdf-status-heading ${emptyClass || ""}">${heading} — <strong>${formatCurrencyBR(total)}</strong></div>
+              <table><thead><tr><th>Vencimento</th><th>Valor</th><th>Descrição / Fornecedor</th><th>Situação</th><th>Método / Remessa</th></tr></thead>
+              <tbody>${list.map((payment) => `
+                <tr>
+                  <td>${escapeHTML(dateBR(payment.dueDate))}</td>
+                  <td>${escapeHTML(formatCurrencyBR(Number(payment.amount) || 0))}</td>
+                  <td>${escapeHTML(payment.description || "Sem descrição")}</td>
+                  <td>${escapeHTML(statusLabel(payment))}</td>
+                  <td>${escapeHTML(remittanceLabel(payment))}</td>
+                </tr>`).join("")}</tbody>
+              <tfoot><tr><th colspan="4">Total ${heading}</th><th>${formatCurrencyBR(total)}</th></tr></tfoot></table>`;
+          };
+          return block(settled, "✅ Autorizados / Pagos", "pdf-status-settled") + block(pending, "✴️ A Autorizar", "pdf-status-pending");
+        };
         const datesForCompany = (company) => getRelevantPaymentDates(company).map((date) => {
           const payments = (company.payments || []).filter((payment) => payment.dueDate === date);
           const total = payments.reduce((sum, payment) => sum + (Number(payment.amount) || 0), 0);
           return `<div class="pdf-date-group">
             <div class="pdf-date-heading"><span>Vencimentos de ${escapeHTML(dateBR(date))}</span><strong>${payments.length ? `${payments.length} lançamento(s)` : "Sem movimentação"}</strong></div>
-            <table><thead><tr><th>Vencimento</th><th>Valor</th><th>Descrição / Fornecedor</th><th>Situação</th><th>Método / Remessa</th></tr></thead>
-            <tbody>${rowsForDate(payments) || '<tr><td colspan="5" class="pdf-empty">🆗 Sem movimentação.</td></tr>'}</tbody>
-            ${payments.length ? `<tfoot><tr><th colspan="4">Total de ${escapeHTML(dateBR(date))}</th><th>${formatCurrencyBR(total)}</th></tr></tfoot>` : ""}</table>
+            ${rowsForDate(payments) || '<div class="pdf-empty">🆗 Sem movimentação.</div>'}
           </div>`;
         }).join("");
         $("pdfPrintArea").innerHTML = `
@@ -1537,8 +1592,10 @@
           </div>
           ${companies.map((company, index) => {
             const totals = paymentTotals(company);
+            const companyPeriod = getCompanyPeriod(company);
             return `<article class="pdf-company-section">
               <h2>${escapeHTML(company.name || `Empresa ${index + 1}`)}</h2>
+              <p class="pdf-company-period">Período: ${escapeHTML(dateBR(companyPeriod.startDate))} a ${escapeHTML(dateBR(companyPeriod.endDate))} · ${escapeHTML(companyPeriod.referenceTime || "--:--")}</p>
               <div class="pdf-company-summary">
                 <span>Saldo: <strong>${formatCurrencyBR(Number(company.balance) || 0)}</strong></span>
                 <span>A pagar: <strong>${formatCurrencyBR(totals.payable)}</strong></span>
@@ -1569,13 +1626,25 @@
           .pdf-print-overview span { font-size: 18px; font-weight: 800; }
           .pdf-company-section { margin-top: 24px; }
           .pdf-company-summary { flex-direction: row; flex-wrap: wrap; margin-bottom: 12px; }
-          .pdf-date-group { margin: 14px 0; break-inside: avoid; }
+          .pdf-date-group { margin: 14px 0; }
           .pdf-date-heading { display: flex; justify-content: space-between; padding: 8px 10px; background: #e8f4ee; border: 1px solid #b8d8c6; color: #124d38; font-weight: 700; }
+          .pdf-status-heading { padding: 6px 10px; margin: 10px 0 0; background: #f0f5f2; border: 1px solid #b8d8c6; font-weight: 700; }
+          .pdf-status-settled { background: #e6f4ea; color: #14532d; }
+          .pdf-status-pending { background: #fdf3e0; color: #7c4a03; }
           table { width: 100%; border-collapse: collapse; font-size: 11px; }
           th, td { border: 1px solid #cbd5d0; padding: 7px; text-align: left; }
           tfoot th { background: #f0f5f2; text-align: right; }
           .pdf-empty { color: #53665d; font-style: italic; }
-          @media print { body { padding: 12px; } }
+          @media print {
+            body { padding: 12px; }
+            /* Quebra de página: a tabela pode partir entre linhas, mas a célula de
+               descrição/fornecedor nunca é cortada no meio e a linha fica centralizada */
+            .pdf-date-group { break-inside: auto; }
+            tr { break-inside: avoid; page-break-inside: avoid; }
+            td, th { vertical-align: middle; }
+            td:nth-child(3) { break-inside: avoid; page-break-inside: avoid; }
+            thead { display: table-header-group; }
+          }
         `;
         let printed = false;
         const print = () => {
@@ -1599,7 +1668,13 @@
         const report = storage === "server" ? await apiRequest(`/reports/${id}`) : await storeRequest("reports", "readonly", (store) => store.get(id));
         if (!report) throw new Error("Levantamento não encontrado.");
         report._storage = storage;
-        report.companies.forEach((company, index) => { if (!company.name || company.name === `Empresa ${index + 1}`) company.name = state.companies[index] || ""; });
+        report.companies.forEach((company, index) => {
+          if (!company.name || company.name === `Empresa ${index + 1}`) company.name = state.companies[index] || "";
+          // Garante período individual por empresa (compatibilidade com relatórios antigos)
+          if (company.startDate === undefined) company.startDate = "";
+          if (company.endDate === undefined) company.endDate = "";
+          if (company.referenceTime === undefined) company.referenceTime = "";
+        });
         state.draft = report; state.activeCompany = 0;
         $("saveReportButton").textContent = "💾 Atualizar Levantamento";
         render(); scheduleAutoSave(); notify("Levantamento carregado para consulta ou edição.");
@@ -1657,10 +1732,11 @@
         const firstCreatedTime = firstCreatedPayment?.createdAt
           ? new Date(firstCreatedPayment.createdAt).toTimeString().slice(0, 5)
           : "";
+        // Período individual da empresa tem prioridade; cai para o geral se vazio
         return {
-          startDate: paymentDates[0] || company.startDate || state.draft.startDate,
-          endDate: paymentDates[paymentDates.length - 1] || company.endDate || state.draft.endDate,
-          referenceTime: firstCreatedTime || company.referenceTime || state.draft.referenceTime
+          startDate: company.startDate || paymentDates[0] || state.draft.startDate,
+          endDate: company.endDate || paymentDates[paymentDates.length - 1] || state.draft.endDate,
+          referenceTime: company.referenceTime || firstCreatedTime || state.draft.referenceTime
         };
       }
 
@@ -1935,8 +2011,9 @@
         const company = state.draft && state.draft.companies[state.activeCompany];
         if (!company) return;
         $("companyPreviewName").textContent = company.name || `Empresa ${state.activeCompany + 1}`;
-        const header = state.activeCompany === 0 ? [...formatWhatsAppPeriodHeader(company), ""] : [];
-        $("companyWhatsAppPreview").textContent = [...header, ...formatCompanyWhatsApp(company, state.activeCompany)].join("\n");
+        // Cabeçalho "Levantamento de Pagamento de ... a ..." em caixa separada (colagem individual)
+        $("companyWhatsAppHeader").textContent = formatWhatsAppPeriodHeader(company).join("\n");
+        $("companyWhatsAppPreview").textContent = formatCompanyWhatsApp(company, state.activeCompany).join("\n");
       }
 
       function openWhatsApp() {
@@ -2009,9 +2086,11 @@
           state.draft.startDate = state.draft.startDate || firstPaymentDate;
           state.draft.endDate = state.draft.endDate || firstPaymentDate;
           state.draft.referenceTime = state.draft.referenceTime || currentTime;
-          $("startDate").value = state.draft.startDate;
-          $("endDate").value = state.draft.endDate;
-          $("referenceTime").value = state.draft.referenceTime;
+          company.startDate = company.startDate || firstPaymentDate;
+          company.endDate = company.endDate || firstPaymentDate;
+          $("startDate").value = company.startDate;
+          $("endDate").value = company.endDate;
+          $("referenceTime").value = company.referenceTime;
         }
         company.payments.push({
           dueDate: firstPaymentDate,
@@ -2115,7 +2194,7 @@
       function addCompany() {
         readActiveCompany();
         state.companies.push("");
-        state.draft.companies.push({ name: "", balance: 0, payments: [], referenceTime: "" });
+        state.draft.companies.push({ name: "", balance: 0, payments: [], startDate: "", endDate: "", referenceTime: "" });
         renderCompanySettings();
         renderTabs();
         scheduleAutoSave();
@@ -2286,6 +2365,9 @@
             state.draft = autoSaved;
             state.draft.companies.forEach((comp, idx) => {
               if (state.companies[idx]) comp.name = state.companies[idx];
+              if (comp.startDate === undefined) comp.startDate = "";
+              if (comp.endDate === undefined) comp.endDate = "";
+              if (comp.referenceTime === undefined) comp.referenceTime = "";
             });
             $("autoSaveIndicator").textContent = "⚡ Rascunho restaurado";
           } else {
@@ -2438,6 +2520,14 @@
       $("saveReportButton").addEventListener("click", () => saveReport().catch(showError));
       $("copyReportButton").addEventListener("click", () => copyWhatsApp().catch(showError));
       $("copyCompanyReportButton").addEventListener("click", () => copyCompanyWhatsApp().catch(showError));
+      $("copyPreviewHeaderButton").addEventListener("click", async () => {
+        const company = state.draft && state.draft.companies[state.activeCompany];
+        if (!company) return;
+        const text = formatWhatsAppPeriodHeader(company).join("\n");
+        if (!navigator.clipboard || !navigator.clipboard.writeText) throw new Error("A cópia automática não está disponível neste navegador.");
+        await navigator.clipboard.writeText(text);
+        notify("Cabeçalho do levantamento copiado!");
+      });
       $("whatsappButton").addEventListener("click", () => {
         try { openWhatsApp(); } catch (error) { showError(error); }
       });

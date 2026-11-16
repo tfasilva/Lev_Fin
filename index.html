@@ -95,7 +95,7 @@
       <div class="panel-heading">
         <div>
           <h2 class="panel-title">📅 Período do Levantamento</h2>
-          <p class="panel-description">Informe a data inicial, final e o horário de corte do levantamento.</p>
+          <p class="panel-description">Informe a data inicial, final e o horário de corte do levantamento <strong>da empresa selecionada</strong> (cada aba tem seu próprio período).</p>
         </div>
       </div>
       <div class="field-grid">
@@ -203,6 +203,11 @@
             <button class="button small whatsapp" id="whatsappButton" type="button">💬 Abrir WhatsApp ↗</button>
             <button class="button small" id="downloadReportButton" type="button">📄 Baixar .txt</button>
           </div>
+        </div>
+        <div class="company-preview-header-box" id="companyPreviewHeaderBox" title="Cabeçalho do levantamento — copie individualmente">
+          <span class="company-preview-header-label">Cabeçalho do Levantamento</span>
+          <div class="whatsapp-bubble company-preview-header-bubble" id="companyWhatsAppHeader">--</div>
+          <button class="button small" id="copyPreviewHeaderButton" type="button">📋 Copiar cabeçalho</button>
         </div>
         <div class="whatsapp-bubble company-preview-bubble" id="companyWhatsAppPreview">Preencha os dados do levantamento para visualizar a mensagem.</div>
       </section>
