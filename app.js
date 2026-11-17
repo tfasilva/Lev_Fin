@@ -2066,6 +2066,31 @@
         $("companyWhatsAppPreview").textContent = formatCompanyWhatsApp(company, state.activeCompany).join("\n");
       }
 
+      /* Ao clicar na caixa e pressionar Ctrl+A (ou Cmd+A), seleciona apenas o conteúdo dessa caixa */
+      function setupPreviewTextSelection() {
+        const selectBoxContent = (box) => {
+          const range = document.createRange();
+          range.selectNodeContents(box);
+          const sel = window.getSelection();
+          sel.removeAllRanges();
+          sel.addRange(range);
+        };
+
+        ["companyWhatsAppHeader", "companyWhatsAppPreview"].forEach((id) => {
+          const box = $(id);
+          if (!box) return;
+          box.setAttribute("tabindex", "0");
+          box.style.userSelect = "text";
+          box.addEventListener("click", () => box.focus());
+          box.addEventListener("keydown", (event) => {
+            if ((event.ctrlKey || event.metaKey) && event.key === "a") {
+              event.preventDefault();
+              selectBoxContent(box);
+            }
+          });
+        });
+      }
+
       function openWhatsApp() {
         const text = formatWhatsApp();
         window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, "_blank", "noopener,noreferrer");
@@ -2578,6 +2603,15 @@
         await navigator.clipboard.writeText(text);
         notify("Cabeçalho do levantamento copiado!");
       });
+      $("copyPreviewCompanyButton").addEventListener("click", async () => {
+        const company = state.draft && state.draft.companies[state.activeCompany];
+        if (!company) return;
+        // Copia apenas os dados da empresa (corpo), sem o cabeçalho do período
+        const text = formatCompanyWhatsApp(company, state.activeCompany).join("\n");
+        if (!navigator.clipboard || !navigator.clipboard.writeText) throw new Error("A cópia automática não está disponível neste navegador.");
+        await navigator.clipboard.writeText(text);
+        notify(`Dados da empresa ${company.name} copiados!`);
+      });
       $("whatsappButton").addEventListener("click", () => {
         try { openWhatsApp(); } catch (error) { showError(error); }
       });
@@ -2610,6 +2644,8 @@
       $("lockHistoryButton").addEventListener("click", lockHistory);
 
       $("themeToggle").addEventListener("click", toggleTheme);
+
+      setupPreviewTextSelection();
 
       initialize();
     })();
