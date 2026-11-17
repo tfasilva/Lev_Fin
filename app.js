@@ -1815,7 +1815,8 @@
         const saldoFinalIcon = saldoFinal >= 0 ? "🟢" : "🔴";
 
         lines.push(`${index + 1}️⃣ *${companyName}*`);
-        lines.push(`💵 Saldo Inicial: *${balanceFormatted}*`);
+        lines.push("🏦 Banco: Bradesco");
+        lines.push(`💵 Saldo Atual: *${balanceFormatted}*`);
         lines.push(`${saldoFinalIcon} Saldo Final: *${formatCurrencyBR(saldoFinal)}*`);
         lines.push(WHATSAPP_SEPARATOR);
         lines.push(`✴️ Total Geral: *${totalPayable}*`);
