@@ -1191,7 +1191,8 @@
           const dateLabel = payment.dueDate ? dateBR(payment.dueDate) : "Data não informada";
           const statusTotalsHtml = (state.config.statuses || []).map((s) => {
             const val = (dateByStatus.get(payment.dueDate || "") || {})[s.id] || 0;
-            return `<span class="status-subtotal clickable-filter" data-status-filter="${escapeHTML(s.id)}">${escapeHTML(s.label)}: ${formatCurrencyBR(val)}</span>`;
+            const tone = s.countAs === "paid" ? "tone-paid" : s.countAs === "authorized" ? "tone-authorized" : "tone-open";
+            return `<div class="day-total-chip ${tone} clickable-filter" data-status-filter="${escapeHTML(s.id)}"><span class="day-total-chip-label">${escapeHTML(s.label)}</span><strong>${formatCurrencyBR(val)}</strong></div>`;
           }).join("");
           return `
             <tr data-payment="${originalIndex}">
@@ -1227,9 +1228,11 @@
             <tr class="payment-date-total">
               <td colspan="6">
                 <div class="payment-date-total-content">
-                  <span>Total para ${escapeHTML(dateLabel)}:</span>
-                  ${statusTotalsHtml}
-                  <span class="total-geral">Total Geral: <strong>${formatCurrencyBR(dateTotals.get(payment.dueDate || "") || 0)}</strong></span>
+                  <div class="day-total-title">TOTAIS DE ${escapeHTML(dateLabel)}</div>
+                  <div class="day-total-metrics">
+                    ${statusTotalsHtml}
+                    <div class="day-total-chip is-overall"><span class="day-total-chip-label">Total Geral</span><strong data-day-total="${escapeHTML(payment.dueDate || "")}">${formatCurrencyBR(dateTotals.get(payment.dueDate || "") || 0)}</strong></div>
+                  </div>
                 </div>
               </td>
             </tr>` : ""}`;
@@ -1305,11 +1308,14 @@
         $("paymentRows").querySelectorAll(".payment-date-total").forEach((totalRow) => {
           let row = totalRow.previousElementSibling;
           let total = 0;
+          let dateKey = "";
           while (row && row.matches("tr[data-payment]")) {
-            total += Number(company.payments[Number(row.dataset.payment)]?.amount) || 0;
+            const payment = company.payments[Number(row.dataset.payment)];
+            total += Number(payment?.amount) || 0;
+            if (!dateKey) dateKey = payment?.dueDate || "";
             row = row.previousElementSibling;
           }
-          const value = totalRow.querySelector(".payment-date-total-content strong");
+          const value = totalRow.querySelector("[data-day-total]") || totalRow.querySelector(".payment-date-total-content strong");
           if (value) value.textContent = formatCurrencyBR(total);
         });
       }
@@ -1318,13 +1324,15 @@
         const totals = paymentTotals(company);
         const balance = Number(company.balance) || 0;
         const open = Math.max(0, (totals.payable || 0) - (totals.paid || 0));
-        const forecast = balance - open;
+        const finalBalance = balance - open;
         return `
-          <span>Saldo Inicial: <strong>${formatCurrencyBR(balance)}</strong></span>
-          <span>Total Geral: <strong>${formatCurrencyBR(totals.payable)}</strong></span>
-          <span class="status-chip paid">Total Pago: <strong>${formatCurrencyBR(totals.paid)}</strong></span>
-          <span class="status-chip pending">Total em Aberto: <strong>${formatCurrencyBR(open)}</strong></span>
-          <span class="forecast">Saldo Final: <strong class="${forecast < 0 ? "money-negative" : ""}">${formatCurrencyBR(forecast)}</strong></span>`;
+          <div class="totals-grid" aria-label="Resumo financeiro da empresa">
+            <div class="totals-item tone-balance"><span class="totals-label">Saldo Inicial</span><span class="totals-value">${formatCurrencyBR(balance)}</span></div>
+            <div class="totals-item tone-general"><span class="totals-label">Total Geral</span><span class="totals-value">${formatCurrencyBR(totals.payable)}</span></div>
+            <div class="totals-item tone-paid"><span class="totals-label">Total Pago</span><span class="totals-value">${formatCurrencyBR(totals.paid)}</span></div>
+            <div class="totals-item tone-open"><span class="totals-label">Total em Aberto</span><span class="totals-value">${formatCurrencyBR(open)}</span></div>
+            <div class="totals-item tone-final ${finalBalance < 0 ? "is-negative" : ""}"><span class="totals-label">Saldo Final</span><span class="totals-value">${formatCurrencyBR(finalBalance)}</span></div>
+          </div>`;
       }
 
       function updatePaymentFromInput(event) {
@@ -2426,13 +2434,20 @@
           gate.id = "settingsGate";
           gate.className = "settings-gate";
           gate.innerHTML = `
-            <p style="margin:0 0 10px 0; font-size:13px; color:var(--muted);">Digite a senha para acessar as configurações.</p>
-            <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
-              <div class="password-field" style="max-width:260px; flex:1 1 220px;">
-                <input id="settingsAccessPassword" type="password" placeholder="Senha das configurações" autocomplete="current-password">
-                <button type="button" class="password-toggle" data-target="settingsAccessPassword" aria-label="Mostrar senha" title="Mostrar senha">👁</button>
+            <div class="settings-gate-card">
+              <div class="settings-gate-icon" aria-hidden="true">🔒</div>
+              <div class="settings-gate-body">
+                <h4 class="settings-gate-title">Acesso às configurações</h4>
+                <p class="settings-gate-description">Digite a senha para visualizar e editar as configurações do sistema.</p>
+                <label class="settings-gate-label" for="settingsAccessPassword">Senha</label>
+                <div class="settings-gate-row">
+                  <div class="password-field settings-gate-password">
+                    <input id="settingsAccessPassword" type="password" placeholder="Digite sua senha" autocomplete="current-password">
+                    <button type="button" class="password-toggle" data-target="settingsAccessPassword" aria-label="Mostrar senha" title="Mostrar senha">👁</button>
+                  </div>
+                  <button class="button primary" id="unlockSettingsBtn" type="button">Desbloquear</button>
+                </div>
               </div>
-              <button class="button small primary" id="unlockSettingsBtn" type="button">Desbloquear</button>
             </div>`;
           content.parentElement.insertBefore(gate, content);
           $("unlockSettingsBtn").addEventListener("click", () => unlockSettingsAccess().catch(showError));
