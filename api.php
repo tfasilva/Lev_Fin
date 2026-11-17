@@ -58,16 +58,27 @@ function formatReport(array $row): array
 }
 
 $env = readEnvFile(__DIR__ . DIRECTORY_SEPARATOR . '.env');
-$allowedOrigins = array_filter(array_map('trim', explode(',', $env['WEB_ORIGIN'] ?? 'http://127.0.0.1:5500,http://localhost:5500')));
+$configuredOrigins = array_filter(array_map('trim', explode(',', $env['WEB_ORIGIN'] ?? '')));
 $origin = $_SERVER['HTTP_ORIGIN'] ?? '';
-if ($origin !== '' && in_array($origin, $allowedOrigins, true)) {
+
+// Permite requisições locais (localhost / 127.0.0.1 em qualquer porta) ou as origens configuradas em WEB_ORIGIN
+$isAllowedOrigin = false;
+if ($origin !== '') {
+    if (in_array($origin, $configuredOrigins, true)) {
+        $isAllowedOrigin = true;
+    } elseif (preg_match('/^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i', $origin)) {
+        $isAllowedOrigin = true;
+    }
+}
+
+if ($isAllowedOrigin) {
     header('Access-Control-Allow-Origin: ' . $origin);
     header('Vary: Origin');
     header('Access-Control-Allow-Headers: Authorization, Content-Type');
     header('Access-Control-Allow-Methods: GET, POST, PUT, DELETE, OPTIONS');
 }
 if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'OPTIONS') {
-    http_response_code($origin === '' || in_array($origin, $allowedOrigins, true) ? 204 : 403);
+    http_response_code($origin === '' || $isAllowedOrigin ? 204 : 403);
     exit;
 }
 

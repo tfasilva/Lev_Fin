@@ -19,40 +19,10 @@
         </div>
       </div>
       <div class="topbar-right">
-        <div class="autosave-pill" id="autoSaveIndicator">⚡ Rascunho sincronizado</div>
-        <div class="server-switch-group" title="Ativar ou desativar uso do servidor (MySQL / Local)">
-          <span class="db-dot" id="dbDot"></span>
-          <span id="dbStatus">Conectando...</span>
-          <label class="switch-toggle" title="Ligar / Desligar conexão com o servidor">
-            <input type="checkbox" id="serverPowerSwitch" checked>
-            <span class="switch-slider"></span>
-          </label>
-        </div>
-        <button class="button small icon-only" id="storageSettingsButton" type="button" title="Configurações do Servidor e Armazenamento">⚙️</button>
+        <div class="autosave-pill" id="autoSaveIndicator">⚡ Rascunho salvo</div>
         <button class="button small icon-only" id="themeToggle" type="button" title="Alternar Modo Escuro / Claro">🌓</button>
       </div>
     </header>
-
-    <section class="storage-settings hidden" id="storageSettings" aria-label="Configuração de armazenamento">
-      <label class="storage-mode-field">Modo de Armazenamento
-        <select id="storageMode">
-          <option value="local">Somente Neste Navegador (Offline / Sem servidor)</option>
-        </select>
-      </label>
-      <label class="storage-api-field">Endereço da API (PHP / Servidor)
-        <input id="apiUrlInput" type="text" placeholder="http://127.0.0.1/levfin-api.php ou ./api.php">
-      </label>
-      <label class="storage-token-field">Token de Acesso (opcional)
-        <input id="apiTokenInput" type="password" autocomplete="new-password" placeholder="Opcional">
-      </label>
-      <div class="storage-actions-row">
-        <button class="button small primary" id="testConnectionButton" type="button">🔄 Conectar / Testar</button>
-        <button class="button small" id="toggleConnectButton" type="button">🔌 Desconectar Servidor</button>
-      </div>
-      <p class="storage-help" id="storageHelpText">
-        💡 <b>Modo local:</b> os dados ficam somente neste navegador. Use <b>Salvar PDF</b> ou <b>Exportar Excel</b> para guardar uma cópia no computador.
-      </p>
-    </section>
 
     <!-- Page Heading -->
     <section class="page-heading">
@@ -214,6 +184,11 @@
           <div class="whatsapp-bubble company-preview-bubble" id="companyWhatsAppPreview">Preencha os dados do levantamento para visualizar a mensagem.</div>
           <button class="button small" id="copyPreviewCompanyButton" type="button">📋 Copiar empresa</button>
         </div>
+        <div class="company-preview-header-box" id="companyPreviewObservationBox" title="Observação financeira da empresa — copie individualmente">
+          <span class="company-preview-header-label">Observação do Saldo</span>
+          <div class="whatsapp-bubble company-preview-bubble" id="companyWhatsAppObservation" style="font-weight: 500;">Calculando observação...</div>
+          <button class="button small" id="copyPreviewObservationButton" type="button">📋 Copiar observação</button>
+        </div>
       </section>
 
       <!-- Importação via Print (OCR) com Suporte a Ctrl+V e Drag & Drop -->
@@ -264,7 +239,7 @@
       <div class="panel-heading">
         <div>
           <h2 class="panel-title">🗂️ Histórico de Levantamentos Salvos</h2>
-          <p class="panel-description">Levantamentos armazenados no servidor MySQL e no banco de dados local do seu navegador (IndexedDB).</p>
+          <p class="panel-description">Histórico armazenado com segurança no banco de dados local do seu navegador (IndexedDB).</p>
         </div>
       </div>
       <div class="history-list" id="historyList">

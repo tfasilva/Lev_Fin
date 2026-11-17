@@ -29,113 +29,8 @@
         paymentSort: "date-asc",
         ocrFilterText: "",
         ocrSort: "date-asc",
-        storageMode: "auto", // "auto", "server", "local"
-        apiUrl: DEFAULT_API_URL,
-        apiToken: "",
-        sessionToken: "",
-        serverConnected: false,
         historyUnlocked: false
       };
-
-      function loadStorageConfig() {
-        try {
-          const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || "{}");
-          state.storageMode = "local";
-          state.apiUrl = saved.apiUrl || DEFAULT_API_URL;
-          state.apiToken = "";
-        } catch (_) {
-          state.storageMode = "auto";
-          state.apiUrl = DEFAULT_API_URL;
-        }
-
-        if ($("storageMode")) $("storageMode").value = state.storageMode;
-        if ($("apiUrlInput")) $("apiUrlInput").value = state.apiUrl;
-        if ($("apiTokenInput")) $("apiTokenInput").value = state.apiToken;
-        updateStorageUiLabels();
-      }
-
-      function saveStorageConfig() {
-        state.storageMode = "local";
-        $("storageMode").value = "local";
-        state.apiUrl = $("apiUrlInput").value.trim() || DEFAULT_API_URL;
-        state.apiToken = "";
-        $("apiTokenInput").value = "";
-        localStorage.setItem(STORAGE_KEY, JSON.stringify({ mode: state.storageMode, apiUrl: state.apiUrl, apiToken: "" }));
-        updateStorageUiLabels();
-      }
-
-      function updateStorageUiLabels() {
-        const toggleBtn = $("toggleConnectButton");
-        if (toggleBtn) {
-          if (state.storageMode === "local") {
-            toggleBtn.textContent = "⚡ Ativar Modo Servidor";
-          } else {
-            toggleBtn.textContent = "🔌 Usar Somente Offline (Local)";
-          }
-        }
-        const powerSwitch = $("serverPowerSwitch");
-        if (powerSwitch) {
-          powerSwitch.checked = state.storageMode !== "local";
-        }
-      }
-
-      function setStorageStatus(kind, text) {
-        if ($("dbStatus")) $("dbStatus").textContent = text;
-        const dot = $("dbDot");
-        if (dot) {
-          dot.classList.toggle("ready", kind === "server");
-          dot.classList.toggle("offline", kind === "local");
-          dot.classList.toggle("error", kind === "error");
-        }
-      }
-
-      function apiEndpoint(path) {
-        const base = state.apiUrl || DEFAULT_API_URL;
-        const url = new URL(base, document.baseURI);
-        url.searchParams.set("path", path);
-        return url.href;
-      }
-
-      async function apiRequest(path, method = "GET", body) {
-        const headers = { "Accept": "application/json" };
-        if (body !== undefined) headers["Content-Type"] = "application/json";
-        if (state.apiToken) headers.Authorization = `Bearer ${state.apiToken}`;
-        if (state.sessionToken) headers.Authorization = `Bearer ${state.sessionToken}`;
-        const response = await fetch(apiEndpoint(path), { method, headers, body: body === undefined ? undefined : JSON.stringify(body) });
-        if (!response.ok) {
-          let detail = "";
-          try { detail = (await response.json()).error || ""; } catch (_) {}
-          throw new Error(detail || `Servidor respondeu status ${response.status}.`);
-        }
-        return response.status === 204 ? null : response.json();
-      }
-
-      async function checkServerConnection(showMessage = false) {
-        if (state.storageMode === "local") {
-          state.serverConnected = false;
-          setStorageStatus("local", "Modo Local (Navegador)");
-          if (showMessage) notify("Modo 100% local ativo. Os dados ficam salvos apenas neste navegador.");
-          return false;
-        }
-
-        try {
-          await apiRequest("/health");
-          state.serverConnected = true;
-          setStorageStatus("server", "Servidor MySQL conectado");
-          if (showMessage) notify("Conexão com o banco de dados MySQL realizada com sucesso!");
-          return true;
-        } catch (error) {
-          state.serverConnected = false;
-          if (state.storageMode === "server") {
-            setStorageStatus("error", "Erro ao conectar no MySQL");
-            if (showMessage) notify(`Falha ao conectar no servidor MySQL: ${error.message}`, true);
-          } else {
-            setStorageStatus("offline", "Servidor offline · usando navegador");
-            if (showMessage) notify(`Servidor indisponível. Alternando para o banco local do navegador. (${error.message})`, true);
-          }
-          return false;
-        }
-      }
 
       function todayISO() {
         const now = new Date();
@@ -280,18 +175,7 @@
 
       async function authenticateApplication() {
         let password = "";
-        if (state.serverConnected) {
-          const serverAuth = await apiRequest("/auth/status");
-          password = window.prompt(serverAuth.configured
-            ? "Informe a senha para acessar os dados do LevFin:"
-            : "Crie a senha do LevFin no servidor (mínimo 8 caracteres):");
-          if (password === null) throw new Error("Autenticação cancelada.");
-          if (!serverAuth.configured) {
-            await apiRequest("/auth/setup", "POST", { password });
-          }
-          const login = await apiRequest("/auth/login", "POST", { password });
-          state.sessionToken = login.sessionToken;
-        } else if (hasHistoryPassword()) {
+        if (hasHistoryPassword()) {
           password = window.prompt("Informe a senha para acessar os dados locais do LevFin:");
           if (password === null) throw new Error("Autenticação cancelada.");
         } else {
@@ -301,7 +185,7 @@
         }
 
         const passwordHash = await hashHistoryPassword(password);
-        if (!state.serverConnected && hasHistoryPassword() && passwordHash !== localStorage.getItem(HISTORY_PASSWORD_KEY)) {
+        if (hasHistoryPassword() && passwordHash !== localStorage.getItem(HISTORY_PASSWORD_KEY)) {
           throw new Error("Senha local inválida.");
         }
         localStorage.setItem(HISTORY_PASSWORD_KEY, passwordHash);
@@ -310,7 +194,6 @@
 
       function lockHistory() {
         state.historyUnlocked = false;
-        state.sessionToken = "";
         if (state.draft) {
           state.draft = newDraft();
           state.activeCompany = 0;
@@ -1448,27 +1331,12 @@
           return;
         }
         let reports = [];
-        let serverErrorOccurred = false;
 
-        // Se estiver conectado ou no modo de tentar servidor, busca os relatórios do MySQL
-        if (state.serverConnected || state.storageMode === "server" || state.storageMode === "auto") {
-          try {
-            const serverReports = await apiRequest("/reports");
-            if (Array.isArray(serverReports)) {
-              reports.push(...serverReports.map((r) => ({ ...r, _storage: "server" })));
-            }
-          } catch (err) {
-            serverErrorOccurred = true;
-            console.warn("Falha ao buscar histórico do servidor MySQL:", err);
-          }
-        }
-
-        // Busca também os relatórios locais do IndexedDB (armazenamento offline)
+        // Busca os relatórios do banco local do navegador (IndexedDB)
         try {
           const localReports = await storeRequest("reports", "readonly", (store) => store.getAll());
           if (Array.isArray(localReports)) {
-            // Evitar duplicar visualmente caso tenham o mesmo ID e storage
-            reports.push(...localReports.map((r) => ({ ...r, _storage: "local" })));
+            reports = localReports;
           }
         } catch (err) {
           console.warn("Falha ao buscar histórico local IndexedDB:", err);
@@ -1480,29 +1348,25 @@
           const label = `${dateBR(report.startDate)} a ${dateBR(report.endDate)}`;
           const dateSaved = new Date(report.savedAt).toLocaleString("pt-BR");
           const totalPayments = report.companies.reduce((sum, c) => sum + (c.payments ? c.payments.length : 0), 0);
-          const isServer = report._storage === "server";
-          const badgeHtml = isServer
-            ? `<span class="tab-badge" style="background: var(--green-badge); color: var(--green-badge-text); margin-left: 8px;">☁️ Servidor MySQL</span>`
-            : `<span class="tab-badge" style="background: var(--amber-badge); color: var(--amber-badge-text); margin-left: 8px;">💾 Navegador (Local)</span>`;
 
           return `
             <div class="history-item">
               <div>
-                <div class="history-title">📅 Levantamento: ${escapeHTML(label)} ${badgeHtml}</div>
+                <div class="history-title">📅 Levantamento: ${escapeHTML(label)}</div>
                 <div class="history-meta">Salvo em ${escapeHTML(dateSaved)} · ${report.companies.length} empresas · ${totalPayments} lançamento(s)</div>
               </div>
               <div class="history-actions">
-                <button class="button small" type="button" data-load="${report.id}" data-storage="${report._storage || "local"}">Abrir</button>
-                <button class="button small danger" type="button" data-delete="${report.id}" data-storage="${report._storage || "local"}">Excluir</button>
+                <button class="button small" type="button" data-load="${report.id}">Abrir</button>
+                <button class="button small danger" type="button" data-delete="${report.id}">Excluir</button>
               </div>
             </div>`;
-        }).join("") : `<div class="empty-history">${serverErrorOccurred ? "Servidor MySQL indisponível no momento. " : ""}Nenhum levantamento salvo ainda. Crie o primeiro acima e clique em 'Salvar Levantamento'.</div>`;
+        }).join("") : `<div class="empty-history">Nenhum levantamento salvo ainda. Crie o primeiro acima e clique em 'Salvar Levantamento'.</div>`;
 
         $("historyList").querySelectorAll("[data-load]").forEach((button) => {
-          button.addEventListener("click", () => loadReport(Number(button.dataset.load), button.dataset.storage));
+          button.addEventListener("click", () => loadReport(Number(button.dataset.load)));
         });
         $("historyList").querySelectorAll("[data-delete]").forEach((button) => {
-          button.addEventListener("click", () => deleteReport(Number(button.dataset.delete), button.dataset.storage));
+          button.addEventListener("click", () => deleteReport(Number(button.dataset.delete)));
         });
       }
 
@@ -1538,27 +1402,15 @@
         const existingLocalId = Number.isInteger(Number(state.draft.id)) && Number(state.draft.id) > 0
           ? Number(state.draft.id)
           : null;
-        if (state.serverConnected) {
-          try {
-            const saved = state.draft._storage === "server" && state.draft.id
-              ? await apiRequest(`/reports/${state.draft.id}`, "PUT", record)
-              : await apiRequest("/reports", "POST", (() => { const copy = { ...record }; delete copy.id; return copy; })());
-            state.draft.id = Number(saved.id); state.draft._storage = "server";
-          } catch (error) {
-            state.serverConnected = false; setStorageStatus("local", "Servidor indisponível · usando este navegador");
-            notify(`Servidor indisponível; salvando localmente. ${error.message}`, true);
-            if (state.draft._storage === "server") delete record.id;
-            state.draft.id = Number(await storeRequest("reports", "readwrite", (store) => record.id ? store.put(record) : store.add(record)));
-            state.draft._storage = "local";
-          }
-        } else {
-          if (state.draft._storage === "server" || !existingLocalId) delete record.id;
-          else record.id = existingLocalId;
-          state.draft.id = Number(await storeRequest("reports", "readwrite", (store) => existingLocalId ? store.put(record) : store.add(record)));
-          state.draft._storage = "local";
-        }
+
+        if (existingLocalId) record.id = existingLocalId;
+        else delete record.id;
+
+        state.draft.id = Number(await storeRequest("reports", "readwrite", (store) => existingLocalId ? store.put(record) : store.add(record)));
+        state.draft._storage = "local";
+
         $("saveReportButton").textContent = "💾 Atualizar Levantamento";
-        if (!silent) notify(state.draft._storage === "server" ? "Levantamento salvo no servidor MySQL." : "Levantamento salvo neste navegador.");
+        if (!silent) notify("Levantamento salvo com sucesso neste navegador.");
         await renderHistory();
       }
 
@@ -1760,7 +1612,7 @@
       /* Utilitários de Dias Úteis */
       function parseISODate(isoStr) {
         const [y, m, d] = isoStr.split("-").map(Number);
-        return new Date(y, m - 1, d);
+        return new Date(y, m - 1, d, 12, 0, 0); // Usar meio-dia (12:00) para evitar desvios de fuso horário / horário de verão
       }
 
       function formatISODate(d) {
@@ -1768,6 +1620,13 @@
         const m = String(d.getMonth() + 1).padStart(2, "0");
         const day = String(d.getDate()).padStart(2, "0");
         return `${y}-${m}-${day}`;
+      }
+
+      function isBusinessDay(isoStr) {
+        if (!isoStr) return false;
+        const d = parseISODate(isoStr);
+        const dayOfWeek = d.getDay(); // 0 = Domingo, 6 = Sábado
+        return dayOfWeek !== 0 && dayOfWeek !== 6;
       }
 
       function getBusinessDaysInRange(minDateStr, maxDateStr) {
@@ -1811,13 +1670,101 @@
       function getRelevantPaymentDates(company) {
         const paymentDates = (company.payments || []).map((p) => p.dueDate).filter(Boolean);
         const period = getCompanyPeriod(company);
-        if (!period.startDate || !period.endDate) return [...new Set(paymentDates)].sort();
+        if (!period.startDate || !period.endDate) {
+          return [...new Set(paymentDates)].filter((date) => isBusinessDay(date)).sort();
+        }
 
         const minDate = [period.startDate, ...paymentDates].sort()[0];
         const maxDate = [period.endDate, ...paymentDates].sort().reverse()[0];
-        // Considera apenas dias úteis (segunda a sexta) entre a data inicial e data final,
-        // conforme os lançamentos de todas as empresas. Sábados e domingos são ignorados.
+        // Retorna estritamente os dias úteis (segunda a sexta) no intervalo, ignorando sábados e domingos
         return getBusinessDaysInRange(minDate, maxDate);
+      }
+
+      function calculateCompanyObservation(company) {
+        const totals = paymentTotals(company);
+        const initialBalance = Number(company.balance) || 0;
+        const totalPendingAndAuth = totals.pending + totals.authorized;
+        const finalBalance = initialBalance - totalPendingAndAuth;
+
+        // Se o saldo for suficiente para cobrir tudo que está em aberto/autorizado
+        if (finalBalance >= 0) {
+          if ((totals.payable || 0) === 0) {
+            return "✅ **Sem lançamentos**: Não há pagamentos previstos no período.";
+          }
+          return `✅ **Saldo Suficiente**: Com o saldo atual de ${formatCurrencyBR(initialBalance)}, é possível quitar todos os lançamentos previstos no período (Previsão de saldo final: ${formatCurrencyBR(finalBalance)}).`;
+        }
+
+        // Caso de Saldo Negativo: analisar cronologicamente
+        const payments = (company.payments || [])
+          .filter((p) => p.status !== "paid" && (Number(p.amount) || 0) > 0)
+          .sort((a, b) => {
+            const dateCmp = String(a.dueDate || "").localeCompare(String(b.dueDate || ""));
+            if (dateCmp !== 0) return dateCmp;
+            return (Number(b.amount) || 0) - (Number(a.amount) || 0);
+          });
+
+        if (!payments.length) {
+          return `⚠️ **Atenção: Saldo inicial negativo** (${formatCurrencyBR(finalBalance)}). Não há novos lançamentos cadastrados.`;
+        }
+
+        let runningAvailable = initialBalance;
+        let fullyCoveredUntilDate = "";
+        let firstPendingDate = "";
+        let partialPaymentInfo = null;
+        let totalPaidWithBalance = 0;
+
+        for (let i = 0; i < payments.length; i++) {
+          const p = payments[i];
+          const amt = Number(p.amount) || 0;
+          const pDate = dateBR(p.dueDate);
+
+          if (runningAvailable >= amt) {
+            runningAvailable -= amt;
+            totalPaidWithBalance += amt;
+            fullyCoveredUntilDate = pDate;
+          } else {
+            // Não cobre este lançamento por completo
+            if (!firstPendingDate) {
+              firstPendingDate = pDate;
+            }
+            if (runningAvailable > 0 && !partialPaymentInfo) {
+              partialPaymentInfo = {
+                dueDate: pDate,
+                description: p.description.trim() || "Sem descrição",
+                amount: amt,
+                coveredAmount: runningAvailable,
+                remainingDeficit: amt - runningAvailable
+              };
+              totalPaidWithBalance += runningAvailable;
+              runningAvailable = 0;
+            }
+          }
+        }
+
+        const lines = [];
+        lines.push(`⚠️ **Atenção: Previsão de saldo negativo** (${formatCurrencyBR(finalBalance)}).`);
+
+        if (initialBalance <= 0) {
+          const earliestDate = dateBR(payments[0].dueDate);
+          lines.push(`O saldo inicial é ${formatCurrencyBR(initialBalance)}. Todos os lançamentos a partir de ${earliestDate} ficarão pendentes por falta de saldo.`);
+        } else if (fullyCoveredUntilDate && !partialPaymentInfo && !firstPendingDate) {
+          // Cobriu tudo (não deveria cair aqui pois finalBalance < 0, mas por segurança)
+          lines.push(`Com o saldo de ${formatCurrencyBR(initialBalance)}, é possível pagar os lançamentos.`);
+        } else {
+          if (fullyCoveredUntilDate) {
+            lines.push(`Com o saldo atual, é possível quitar integralmente os lançamentos até **${fullyCoveredUntilDate}** (Total coberto: ${formatCurrencyBR(totalPaidWithBalance)}).`);
+          }
+
+          if (partialPaymentInfo) {
+            lines.push(`Em **${partialPaymentInfo.dueDate}**, o saldo cobre parcialmente o lançamento "${partialPaymentInfo.description}" de ${formatCurrencyBR(partialPaymentInfo.amount)} (é possível pagar ${formatCurrencyBR(partialPaymentInfo.coveredAmount)}, restando ${formatCurrencyBR(partialPaymentInfo.remainingDeficit)}).`);
+          }
+
+          if (firstPendingDate) {
+            lines.push(`A partir de **${firstPendingDate}**, os lançamentos ficarão pendentes por saldo insuficiente.`);
+          }
+        }
+
+        return lines.join("\n");
       }
 
       function formatCompanyWhatsApp(company, index, includeHeading = true) {
@@ -1826,7 +1773,10 @@
         const companyName = company.name.trim() || `Empresa ${index + 1}`;
         const balanceLabel = "Saldo Bradesco";
         const balanceFormatted = formatCurrencyBR(Number(company.balance) || 0);
-        const totalPayable = formatCurrencyBR(totals.payable);
+        const totalPayableNum = Number(totals.payable) || 0;
+        const totalPaidNum = Number(totals.paid) || 0;
+        const totalOpenNum = Math.max(0, totalPayableNum - totalPaidNum);
+        const totalPayable = formatCurrencyBR(totalPayableNum);
         // Lançamentos pagos já foram debitados do saldo Bradesco, portanto não são subtraídos novamente.
         // Considera apenas "A Autorizar" (pending/confirmation) e "Autorizado" (authorized).
         const finalBalance = (Number(company.balance) || 0) - (totals.pending + totals.authorized);
@@ -1837,55 +1787,12 @@
         // Total em Aberto = Total Geral - Total Pago
         // Considera apenas status "paid" para o total pago
         // O restante (authorized + pending + confirmation) soma ao total em aberto
-        lines.push(`💰 Total em Aberto: *${formatCurrencyBR(totalPayable - (totals.paid || 0))}*`);
-        lines.push(`✅ Total Pago: *${formatCurrencyBR(totals.paid)}*`);
+        lines.push(`💰 Total em Aberto: *${formatCurrencyBR(totalOpenNum)}*`);
+        lines.push(`✅ Total Pago: *${formatCurrencyBR(totalPaidNum)}*`);
         const balanceSign = finalBalance >= 0 ? "🟢" : "🔴";
-        // Observação de pagamento com base no saldo
-        let observacao = "";
         
-        // Exibir dados formatados (como solicitado)
-        // Nota: Os valores exatos virão do cálculo abaixo
-        const finalBalanceVal = finalBalance || 0;
-        const totalPagoVal = totals.paid || 0;
-        const totalGeralVal = totalPayable || 0;
-        
-        // Formatar valores para o padrão solicitado
-        const saldoFormatado = formatCurrencyBR(finalBalanceVal);
-        const totalGeralFormatado = formatCurrencyBR(totalGeralVal);
-        const totalPagoFormatado = formatCurrencyBR(totalPagoVal);
-        
-        // Montar cabeçalho (linhas 1-7, mas apenas a observação será adicionada ao final)
-        // O chamador já deve exibir as linhas 1-7 separadamente
-        
-        // Observação específica conforme solicitado
-        if (finalBalanceVal < 0) {
-          // Saldo negativo - usar texto exato solicitado
-          const saldoNegativo = Math.abs(finalBalanceVal);
-          const totalAPagarComSaldo = "59.075,59"; // Valor conforme solicitado
-          dataFimSaldo = "19/11/2026"; // Data conforme solicitado
-          dataInicioPendente = "17/11/2026"; // Data conforme solicitado
-          
-          observacao = `1️⃣ *ATHENAS*\n` +
-            `💵 Saldo Bradesco: *R$ 92.114,48*\n` +
-            `✴️ Total Geral: *R$ 136.906,03*\n` +
-            `💰 Total em Aberto: *R$ 0,00*\n` +
-            `✅ Total Pago: *R$ 19.468,57*\n` +
-            `────────────────────\n` +
-            `⚠️ **Atenção: Saldo negativo** (R$ R$ 25.322,98).\n` +
-            `Com o saldo atual, é possível pagar até R$ ${totalAPagarComSaldo} em lançamentos até 19/11/2026.\n` +
-            `A partir de 17/11/2026 os lançamentos ficarão pendentes (saldo insuficiente).\n` +
-            `Com R$ ${totalAPagarComSaldo} do saldo atual, é possível pagar até o lançamento de 19/11/2026.`;
-        } else if (/* saldo parcial */) {
-          // Saldo parcial
-          observacao = `✅ **Parcial**: Com o saldo atual é possível pagar alguns lançamentos.`;
-        } else {
-          // Saldo suficiente
-          observacao = `✅ **Saldo Suficiente**: Com o saldo atual, é possível quitar todos os lançamentos.`;
-        }
-        
+        const observacao = calculateCompanyObservation(company);
         lines.push(observacao);
-        lines.push(WHATSAPP_SEPARATOR);
-        lines.push("");
         lines.push(WHATSAPP_SEPARATOR);
         lines.push("");
 
@@ -2136,6 +2043,11 @@
         // Cabeçalho "Levantamento de Pagamento de ... a ..." em caixa separada (colagem individual)
         $("companyWhatsAppHeader").textContent = formatWhatsAppPeriodHeader(company).join("\n");
         $("companyWhatsAppPreview").textContent = formatCompanyWhatsApp(company, state.activeCompany).join("\n");
+        
+        const obsBox = $("companyWhatsAppObservation");
+        if (obsBox) {
+          obsBox.textContent = calculateCompanyObservation(company);
+        }
       }
 
       /* Ao clicar na caixa e pressionar Ctrl+A (ou Cmd+A), seleciona apenas o conteúdo dessa caixa */
@@ -2148,7 +2060,7 @@
           sel.addRange(range);
         };
 
-        ["companyWhatsAppHeader", "companyWhatsAppPreview"].forEach((id) => {
+        ["companyWhatsAppHeader", "companyWhatsAppPreview", "companyWhatsAppObservation"].forEach((id) => {
           const box = $(id);
           if (!box) return;
           box.setAttribute("tabindex", "0");
@@ -2525,65 +2437,12 @@
           render();
           setupClipboardAndDropZone();
         } catch (error) {
-          setStorageStatus("error", "Erro ao carregar");
           showError(error);
           $("historyList").innerHTML = '<div class="empty-history">O armazenamento não pôde ser iniciado.</div>';
         }
       }
 
       /* Event Listeners */
-      $("storageSettingsButton").addEventListener("click", () => {
-        $("storageSettings").classList.toggle("hidden");
-      });
-
-      const serverPowerSwitch = $("serverPowerSwitch");
-      if (serverPowerSwitch) {
-        serverPowerSwitch.addEventListener("change", async (e) => {
-          if (e.target.checked) {
-            state.storageMode = "auto";
-            if ($("storageMode")) $("storageMode").value = "auto";
-          } else {
-            state.storageMode = "local";
-            if ($("storageMode")) $("storageMode").value = "local";
-          }
-          saveStorageConfig();
-          await checkServerConnection(true);
-          await renderHistory();
-        });
-      }
-
-      $("storageMode").addEventListener("change", async () => {
-        saveStorageConfig();
-        await checkServerConnection(true);
-        await renderHistory();
-      });
-
-      $("apiUrlInput").addEventListener("change", () => {
-        saveStorageConfig();
-      });
-
-      $("apiTokenInput").addEventListener("change", () => {
-        saveStorageConfig();
-      });
-
-      $("testConnectionButton").addEventListener("click", async () => {
-        saveStorageConfig();
-        await checkServerConnection(true);
-        await renderHistory();
-      });
-
-      $("toggleConnectButton").addEventListener("click", async () => {
-        if (state.storageMode === "local") {
-          state.storageMode = "auto";
-          $("storageMode").value = "auto";
-        } else {
-          state.storageMode = "local";
-          $("storageMode").value = "local";
-        }
-        saveStorageConfig();
-        await checkServerConnection(true);
-        await renderHistory();
-      });
       $("balanceInput").addEventListener("input", () => {
         readActiveCompany();
         renderOverview();
@@ -2694,6 +2553,14 @@
         if (!navigator.clipboard || !navigator.clipboard.writeText) throw new Error("A cópia automática não está disponível neste navegador.");
         await navigator.clipboard.writeText(text);
         notify(`Dados da empresa ${company.name} copiados!`);
+      });
+      $("copyPreviewObservationButton").addEventListener("click", async () => {
+        const company = state.draft && state.draft.companies[state.activeCompany];
+        if (!company) return;
+        const text = calculateCompanyObservation(company);
+        if (!navigator.clipboard || !navigator.clipboard.writeText) throw new Error("A cópia automática não está disponível neste navegador.");
+        await navigator.clipboard.writeText(text);
+        notify(`Observação do saldo da empresa ${company.name} copiada!`);
       });
       $("whatsappButton").addEventListener("click", () => {
         try { openWhatsApp(); } catch (error) { showError(error); }
