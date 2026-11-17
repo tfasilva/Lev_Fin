@@ -6,10 +6,8 @@
       const DEFAULT_NAMES = [];
       const AUTOSAVE_KEY = "levfin_autosave_draft_v2";
       const THEME_KEY = "levfin_theme_v2";
-      const STORAGE_KEY = "levfin_storage_config_v1";
-      const HISTORY_PASSWORD_KEY = "levfin_history_password_hash_v1";
-
-      const DEFAULT_API_URL = "http://127.0.0.1/levfin-api.php";
+      const STORAGE_KEY = "levfin_storage_config_v2";
+      const HISTORY_PASSWORD_KEY = "levfin_history_password_hash_v2";
 
       const $ = (id) => document.getElementById(id);
 
@@ -1598,9 +1596,9 @@
 
       async function loadReport(id, storage = "local") {
         requireHistoryAccess();
-        const report = storage === "server" ? await apiRequest(`/reports/${id}`) : await storeRequest("reports", "readonly", (store) => store.get(id));
+        const report = await storeRequest("reports", "readonly", (store) => store.get(id));
         if (!report) throw new Error("Levantamento não encontrado.");
-        report._storage = storage;
+        report._storage = "local";
         report.companies.forEach((company, index) => {
           if (!company.name || company.name === `Empresa ${index + 1}`) company.name = state.companies[index] || "";
           // Garante período individual por empresa (compatibilidade com relatórios antigos)
@@ -1616,9 +1614,8 @@
       async function deleteReport(id, storage = "local") {
         requireHistoryAccess();
         if (!window.confirm("Deseja realmente excluir este levantamento salvo? Esta ação não pode ser desfeita.")) return;
-        if (storage === "server") await apiRequest(`/reports/${id}`, "DELETE");
-        else await storeRequest("reports", "readwrite", (store) => store.delete(id));
-        if (state.draft.id === id && state.draft._storage === storage) { state.draft.id = null; state.draft._storage = null; $("saveReportButton").textContent = "💾 Salvar Levantamento"; }
+        await storeRequest("reports", "readwrite", (store) => store.delete(id));
+        if (state.draft.id === id && state.draft._storage === "local") { state.draft.id = null; state.draft._storage = null; $("saveReportButton").textContent = "💾 Salvar Levantamento"; }
         await renderHistory(); notify("Levantamento excluído com sucesso.");
       }
 
@@ -1696,85 +1693,105 @@
       function calculateCompanyObservation(company) {
         const totals = paymentTotals(company);
         const initialBalance = Number(company.balance) || 0;
-        const totalPendingAndAuth = totals.pending + totals.authorized;
-        const finalBalance = initialBalance - totalPendingAndAuth;
+        const finalBalance = initialBalance - (totals.pending + totals.authorized);
 
-        // Se o saldo for suficiente para cobrir tudo que está em aberto/autorizado
         if (finalBalance >= 0) {
           if ((totals.payable || 0) === 0) {
-            return "✅ **Sem lançamentos**: Não há pagamentos previstos no período.";
+            return "✅ *Sem lançamentos previstos no período.*";
           }
-          return `✅ **Saldo Suficiente**: Com o saldo atual de ${formatCurrencyBR(initialBalance)}, é possível quitar todos os lançamentos previstos no período (Previsão de saldo final: ${formatCurrencyBR(finalBalance)}).`;
+          return `✅ *Saldo suficiente:* Cobre todos os lançamentos (Sobram ${formatCurrencyBR(finalBalance)}).`;
         }
 
-        // Caso de Saldo Negativo: analisar cronologicamente
         const payments = (company.payments || [])
           .filter((p) => p.status !== "paid" && (Number(p.amount) || 0) > 0)
+          .slice()
           .sort((a, b) => {
             const dateCmp = String(a.dueDate || "").localeCompare(String(b.dueDate || ""));
             if (dateCmp !== 0) return dateCmp;
-            return (Number(b.amount) || 0) - (Number(a.amount) || 0);
+            const amountDiff = (Number(a.amount) || 0) - (Number(b.amount) || 0);
+            if (amountDiff !== 0) return amountDiff;
+            return String(a.description || "").localeCompare(String(b.description || ""), "pt-BR");
           });
 
         if (!payments.length) {
-          return `⚠️ **Atenção: Saldo inicial negativo** (${formatCurrencyBR(finalBalance)}). Não há novos lançamentos cadastrados.`;
+          return `⚠️ *Saldo negativo:* ${formatCurrencyBR(finalBalance)}.`;
         }
 
-        let runningAvailable = initialBalance;
-        let fullyCoveredUntilDate = "";
-        let firstPendingDate = "";
-        let partialPaymentInfo = null;
-        let totalPaidWithBalance = 0;
-
-        for (let i = 0; i < payments.length; i++) {
-          const p = payments[i];
+        const byDate = new Map();
+        payments.forEach((p) => {
+          const key = p.dueDate || "";
+          if (!byDate.has(key)) byDate.set(key, { date: key, total: 0, items: [] });
+          const entry = byDate.get(key);
           const amt = Number(p.amount) || 0;
-          const pDate = dateBR(p.dueDate);
+          entry.total += amt;
+          entry.items.push({ amount: amt, desc: (p.description || "Lançamento").split("|")[0].trim() });
+        });
+        const dates = Array.from(byDate.values()).sort((a, b) => String(a.date).localeCompare(String(b.date)));
 
-          if (runningAvailable >= amt) {
-            runningAvailable -= amt;
-            totalPaidWithBalance += amt;
-            fullyCoveredUntilDate = pDate;
-          } else {
-            // Não cobre este lançamento por completo
-            if (!firstPendingDate) {
-              firstPendingDate = pDate;
-            }
-            if (runningAvailable > 0 && !partialPaymentInfo) {
-              partialPaymentInfo = {
-                dueDate: pDate,
-                description: p.description.trim() || "Sem descrição",
-                amount: amt,
-                coveredAmount: runningAvailable,
-                remainingDeficit: amt - runningAvailable
-              };
-              totalPaidWithBalance += runningAvailable;
-              runningAvailable = 0;
-            }
-          }
-        }
-
-        const lines = [];
-        lines.push(`⚠️ **Atenção: Previsão de saldo negativo** (${formatCurrencyBR(finalBalance)}).`);
+        const lines = [`⚠️ *Saldo negativo:* ${formatCurrencyBR(finalBalance)}`];
 
         if (initialBalance <= 0) {
-          const earliestDate = dateBR(payments[0].dueDate);
-          lines.push(`O saldo inicial é ${formatCurrencyBR(initialBalance)}. Todos os lançamentos a partir de ${earliestDate} ficarão pendentes por falta de saldo.`);
-        } else if (fullyCoveredUntilDate && !partialPaymentInfo && !firstPendingDate) {
-          // Cobriu tudo (não deveria cair aqui pois finalBalance < 0, mas por segurança)
-          lines.push(`Com o saldo de ${formatCurrencyBR(initialBalance)}, é possível pagar os lançamentos.`);
-        } else {
-          if (fullyCoveredUntilDate) {
-            lines.push(`Com o saldo atual, é possível quitar integralmente os lançamentos até **${fullyCoveredUntilDate}** (Total coberto: ${formatCurrencyBR(totalPaidWithBalance)}).`);
+          lines.push(`🔴 *Saldo zerado/negativo:* Lançamentos pendentes a partir de ${dateBR(dates[0].date)}.`);
+          dates.forEach((entry) => {
+            const label = dateBR(entry.date);
+            lines.push(`🔴 *${label}:* Pendente — Total ${formatCurrencyBR(entry.total)}.`);
+            entry.items.forEach((item) => lines.push(`   • ${formatCurrencyBR(item.amount)} | ${item.desc}`));
+          });
+          return lines.join("\n");
+        }
+
+        let remaining = initialBalance;
+        let blocked = false;
+
+        dates.forEach((entry) => {
+          const label = dateBR(entry.date);
+
+          if (blocked) {
+            lines.push(`🔴 *${label}:* Pendente — Total ${formatCurrencyBR(entry.total)}.`);
+            entry.items.forEach((item) => lines.push(`   • ${formatCurrencyBR(item.amount)} | ${item.desc}`));
+            return;
           }
 
-          if (partialPaymentInfo) {
-            lines.push(`Em **${partialPaymentInfo.dueDate}**, o saldo cobre parcialmente o lançamento "${partialPaymentInfo.description}" de ${formatCurrencyBR(partialPaymentInfo.amount)} (é possível pagar ${formatCurrencyBR(partialPaymentInfo.coveredAmount)}, restando ${formatCurrencyBR(partialPaymentInfo.remainingDeficit)}).`);
+          const paidItems = [];
+          const pendingItems = [];
+          entry.items.forEach((item) => {
+            if (remaining >= item.amount) {
+              remaining -= item.amount;
+              paidItems.push(item);
+            } else {
+              pendingItems.push(item);
+            }
+          });
+
+          if (!pendingItems.length) {
+            lines.push(`🟢 *${label}:* Paga integral`);
+            lines.push(`   • Total ${formatCurrencyBR(entry.total)} -> Saldo após: ${formatCurrencyBR(remaining)}.`);
+            return;
           }
 
-          if (firstPendingDate) {
-            lines.push(`A partir de **${firstPendingDate}**, os lançamentos ficarão pendentes por saldo insuficiente.`);
+          if (!paidItems.length) {
+            const needed = entry.total - remaining;
+            lines.push(`🟡 *${label}:* Saldo insuficiente`);
+            lines.push(`   • Sobrou ${formatCurrencyBR(remaining)}. Necessário mais ${formatCurrencyBR(needed)} para quitar o restante desta data (Total ${formatCurrencyBR(entry.total)}).`);
+            lines.push(`🔴 *${label} pendente:*`);
+            pendingItems.forEach((item) => lines.push(`   • ${formatCurrencyBR(item.amount)} | ${item.desc}`));
+            blocked = true;
+            return;
           }
+
+          const paidTotal = paidItems.reduce((sum, item) => sum + item.amount, 0);
+          const pendingTotal = pendingItems.reduce((sum, item) => sum + item.amount, 0);
+          const needed = pendingTotal - remaining;
+          lines.push(`🟡 *${label}:* Parcial`);
+          lines.push(`   • Pago ${formatCurrencyBR(paidTotal)}.`);
+          lines.push(`   • Sobrou ${formatCurrencyBR(remaining)}. Necessário mais ${formatCurrencyBR(needed)} para quitar o restante desta data.`);
+          lines.push(`🔴 *${label} pendente:*`);
+          pendingItems.forEach((item) => lines.push(`   • ${formatCurrencyBR(item.amount)} | ${item.desc}`));
+          blocked = true;
+        });
+
+        if (blocked) {
+          lines.push(`   • Saldo remanescente: ${formatCurrencyBR(remaining)}. Necessário mais ${formatCurrencyBR(Math.abs(finalBalance))} no total para quitar todos os lançamentos.`);
         }
 
         return lines.join("\n");
@@ -1794,18 +1811,16 @@
         // Considera apenas "A Autorizar" (pending/confirmation) e "Autorizado" (authorized).
         const finalBalance = (Number(company.balance) || 0) - (totals.pending + totals.authorized);
 
+        const saldoFinal = (Number(company.balance) || 0) - totalOpenNum;
+        const saldoFinalIcon = saldoFinal >= 0 ? "🟢" : "🔴";
+
         lines.push(`${index + 1}️⃣ *${companyName}*`);
-        lines.push(`💵 ${balanceLabel}: *${balanceFormatted}*`);
+        lines.push(`💵 Saldo Inicial: *${balanceFormatted}*`);
+        lines.push(`${saldoFinalIcon} Saldo Final: *${formatCurrencyBR(saldoFinal)}*`);
+        lines.push(WHATSAPP_SEPARATOR);
         lines.push(`✴️ Total Geral: *${totalPayable}*`);
-        // Total em Aberto = Total Geral - Total Pago
-        // Considera apenas status "paid" para o total pago
-        // O restante (authorized + pending + confirmation) soma ao total em aberto
-        lines.push(`💰 Total em Aberto: *${formatCurrencyBR(totalOpenNum)}*`);
+        lines.push(`💰 Total Aberto: *${formatCurrencyBR(totalOpenNum)}*`);
         lines.push(`✅ Total Pago: *${formatCurrencyBR(totalPaidNum)}*`);
-        const balanceSign = finalBalance >= 0 ? "🟢" : "🔴";
-        
-        const observacao = calculateCompanyObservation(company);
-        lines.push(observacao);
         lines.push(WHATSAPP_SEPARATOR);
         lines.push("");
 
@@ -2250,13 +2265,7 @@
           });
         }
         await storeRequest("settings", "readwrite", (store) => store.put({ key: "companyNames", value: state.companies }));
-        if (state.serverConnected) {
-          try {
-            await apiRequest("/settings/company-names", "PUT", state.companies);
-          } catch (err) {
-            console.warn("Não foi possível sincronizar os nomes no MySQL:", err);
-          }
-        }
+        // Sincronização com servidor removida - dados permanecem apenas neste navegador
         renderTabs();
         updateWhatsAppPreview();
         scheduleAutoSave();
@@ -2279,13 +2288,7 @@
         state.companies = state.draft.companies.map(() => "");
         state.activeCompany = Math.min(state.activeCompany, state.draft.companies.length - 1);
         await storeRequest("settings", "readwrite", (store) => store.put({ key: "companyNames", value: state.companies }));
-        if (state.serverConnected) {
-          try {
-            await apiRequest("/settings/company-names", "PUT", state.companies);
-          } catch (err) {
-            console.warn("Não foi possível sincronizar os nomes no MySQL:", err);
-          }
-        }
+        // Sincronização com servidor removida - dados permanecem apenas neste navegador
         renderCompanySettings();
         renderTabs();
         updateWhatsAppPreview();
@@ -2352,6 +2355,10 @@
         const saved = localStorage.getItem(THEME_KEY);
         if (saved === "dark") {
           document.documentElement.setAttribute("data-theme", "dark");
+        } else if (saved === "light") {
+          document.documentElement.setAttribute("data-theme", "light");
+        } else if (!saved && window.matchMedia && window.matchMedia("(prefers-color-scheme: light)").matches) {
+          document.documentElement.setAttribute("data-theme", "light");
         } else if (!saved && window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches) {
           document.documentElement.setAttribute("data-theme", "dark");
         }

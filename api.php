@@ -36,11 +36,14 @@ function jsonBody(): array
 
 function validReport(array $report): bool
 {
-    return isset($report['startDate'], $report['endDate'], $report['companies'])
-        && preg_match('/^\d{4}-\d{2}-\d{2}$/', (string)$report['startDate']) === 1
-        && preg_match('/^\d{4}-\d{2}-\d{2}$/', (string)$report['endDate']) === 1
-        && is_array($report['companies'])
-        && count($report['companies']) === 5;
+    if (!isset($report['startDate'], $report['endDate'], $report['companies'])) return false;
+    if (preg_match('/^\d{4}-\d{2}-\d{2}$/', (string)$report['startDate']) !== 1) return false;
+    if (preg_match('/^\d{4}-\d{2}-\d{2}$/', (string)$report['endDate']) !== 1) return false;
+    if (!is_array($report['companies']) || count($report['companies']) < 1) return false;
+    foreach ($report['companies'] as $company) {
+        if (!is_array($company)) return false;
+    }
+    return true;
 }
 
 function formatReport(array $row): array
@@ -60,6 +63,9 @@ function formatReport(array $row): array
 $env = readEnvFile(__DIR__ . DIRECTORY_SEPARATOR . '.env');
 $configuredOrigins = array_filter(array_map('trim', explode(',', $env['WEB_ORIGIN'] ?? '')));
 $origin = $_SERVER['HTTP_ORIGIN'] ?? '';
+
+// Se API_TOKEN estiver configurado, as requisições devem incluir o token de autenticação
+$apiToken = trim($env['API_TOKEN'] ?? '');
 
 // Permite requisições locais (localhost / 127.0.0.1 em qualquer porta) ou as origens configuradas em WEB_ORIGIN
 $isAllowedOrigin = false;
@@ -154,12 +160,19 @@ try {
 
     if ($path === '/settings/company-names' && $method === 'PUT') {
         $names = jsonBody();
-        if (count($names) !== 5 || array_filter($names, fn($name) => !is_string($name) || mb_strlen($name) > 100)) {
-            respond(400, ['error' => 'Informe exatamente cinco nomes válidos de empresa.']);
+        if (!is_array($names) || count($names) < 1) {
+            respond(400, ['error' => 'Informe ao menos um nome de empresa.']);
+        }
+        $normalized = [];
+        foreach (array_values($names) as $name) {
+            if (!is_string($name) || mb_strlen($name) > 100) {
+                respond(400, ['error' => 'Nome de empresa inválido.']);
+            }
+            $normalized[] = trim($name);
         }
         $stmt = $pdo->prepare('INSERT INTO settings (setting_key, setting_value) VALUES (?, ?) ON DUPLICATE KEY UPDATE setting_value = VALUES(setting_value)');
-        $stmt->execute(['companyNames', json_encode(array_values($names), JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR)]);
-        respond(200, array_values($names));
+        $stmt->execute(['companyNames', json_encode($normalized, JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR)]);
+        respond(200, $normalized);
     }
 
     if ($path === '/reports' && $method === 'GET') {
