@@ -1303,7 +1303,8 @@
       function totalsMarkup(company) {
         const totals = paymentTotals(company);
         const balance = Number(company.balance) || 0;
-        const forecast = balance - totals.forecastOutflow;
+        // Lançamentos pagos já foram debitados do saldo; considera apenas pendentes + autorizados
+        const forecast = balance - (totals.pending + totals.authorized);
         return `
           <span>Saldo Inicial: <strong>${formatCurrencyBR(balance)}</strong></span>
           <span>A Pagar: <strong>${formatCurrencyBR(totals.payable)}</strong></span>
@@ -1376,7 +1377,11 @@
         const companies = state.draft.companies;
         const balance = companies.reduce((sum, company) => sum + (Number(company.balance) || 0), 0);
         const pending = companies.reduce((sum, company) => sum + paymentTotals(company).pending, 0);
-        const forecast = companies.reduce((sum, company) => sum + (Number(company.balance) || 0) - paymentTotals(company).forecastOutflow, 0);
+        // Lançamentos pagos já foram debitados do saldo; considera apenas pendentes + autorizados
+        const forecast = companies.reduce((sum, company) => {
+          const t = paymentTotals(company);
+          return sum + (Number(company.balance) || 0) - (t.pending + t.authorized);
+        }, 0);
         const breakdown = (getValue) => companies.map((company, index) => `
           <div class="stat-breakdown-row">
             <span title="${escapeHTML(company.name || `Empresa ${index + 1}`)}">${escapeHTML(company.name || `Empresa ${index + 1}`)}</span>
@@ -1391,7 +1396,8 @@
         $("pendingByCompany").innerHTML = breakdown((company) => paymentTotals(company).pending);
         $("forecastByCompany").innerHTML = breakdown((company) => {
           const totals = paymentTotals(company);
-          return (Number(company.balance) || 0) - totals.forecastOutflow;
+          // Lançamentos pagos já foram debitados do saldo; considera apenas pendentes + autorizados
+          return (Number(company.balance) || 0) - (totals.pending + totals.authorized);
         });
       }
 
@@ -1605,7 +1611,7 @@
           </div>
           <div class="pdf-print-overview">
             <div><strong>Total a Autorizar</strong><span>${formatCurrencyBR(companies.reduce((sum, c) => sum + paymentTotals(c).pending, 0))}</span></div>
-            <div><strong>Previsão de Saldo Final</strong><span>${formatCurrencyBR(companies.reduce((sum, c) => sum + (Number(c.balance) || 0) - paymentTotals(c).forecastOutflow, 0))}</span></div>
+            <div><strong>Previsão de Saldo Final</strong><span>${formatCurrencyBR(companies.reduce((sum, c) => { const t = paymentTotals(c); return sum + (Number(c.balance) || 0) - (t.pending + t.authorized); }, 0))}</span></div>
           </div>
           ${companies.map((company, index) => {
             const totals = paymentTotals(company);
@@ -1617,7 +1623,8 @@
                 <span>Saldo: <strong>${formatCurrencyBR(Number(company.balance) || 0)}</strong></span>
                 <span>A pagar: <strong>${formatCurrencyBR(totals.payable)}</strong></span>
                 <span>A autorizar: <strong>${formatCurrencyBR(totals.pending)}</strong></span>
-                <span>Saldo final: <strong>${formatCurrencyBR((Number(company.balance) || 0) - totals.forecastOutflow)}</strong></span>
+                // Lançamentos pagos já foram debitados do saldo; considera apenas pendentes + autorizados
+                <span>Saldo final: <strong>${formatCurrencyBR((Number(company.balance) || 0) - (totals.pending + totals.authorized))}</strong></span>
               </div>
               ${datesForCompany(company)}
             </article>`;
@@ -1774,17 +1781,9 @@
 
         const minDate = [period.startDate, ...paymentDates].sort()[0];
         const maxDate = [period.endDate, ...paymentDates].sort().reverse()[0];
-        const dates = [];
-        const current = parseISODate(minDate);
-        const end = parseISODate(maxDate);
-        while (current <= end) {
-          dates.push(formatISODate(current));
-          current.setDate(current.getDate() + 1);
-        }
-        paymentDates.forEach((date) => {
-          if (!dates.includes(date)) dates.push(date);
-        });
-        return dates.sort();
+        // Considera apenas dias úteis (segunda a sexta) entre a data inicial e data final,
+        // conforme os lançamentos de todas as empresas. Sábados e domingos são ignorados.
+        return getBusinessDaysInRange(minDate, maxDate);
       }
 
       function formatCompanyWhatsApp(company, index, includeHeading = true) {
@@ -1794,7 +1793,9 @@
         const balanceLabel = "Saldo Bradesco";
         const balanceFormatted = formatCurrencyBR(Number(company.balance) || 0);
         const totalPayable = formatCurrencyBR(totals.payable);
-        const finalBalance = (Number(company.balance) || 0) - totals.payable;
+        // Lançamentos pagos já foram debitados do saldo Bradesco, portanto não são subtraídos novamente.
+        // Considera apenas "A Autorizar" (pending/confirmation) e "Autorizado" (authorized).
+        const finalBalance = (Number(company.balance) || 0) - (totals.pending + totals.authorized);
 
         lines.push(`${index + 1}️⃣ *${companyName}*`);
         lines.push(`💵 ${balanceLabel}: *${balanceFormatted}*`);
@@ -1996,7 +1997,8 @@
             });
           }
 
-          const forecast = (Number(company.balance) || 0) - totals.forecastOutflow;
+          // Lançamentos pagos já foram debitados do saldo; considera apenas pendentes + autorizados
+          const forecast = (Number(company.balance) || 0) - (totals.pending + totals.authorized);
           lines.push("____________________________________________");
           lines.push(`💵 Previsão de Saldo Final: *${formatCurrencyBR(forecast)}*`);
           lines.push("____________________________________________");
