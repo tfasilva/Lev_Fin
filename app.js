@@ -1454,78 +1454,111 @@
         readMetadata();
         const companies = state.draft.companies.filter((_, index) => selectedIndexes.includes(index));
         const statusLabel = (payment) => payment.status === "paid" ? "Pago" : payment.status === "authorized" ? "Autorizado" : payment.status === "confirmation" ? "Confirmação" : "A autorizar";
+        const statusClass = (payment) => payment.status === "paid" ? "is-paid" : payment.status === "authorized" ? "is-authorized" : payment.status === "confirmation" ? "is-confirmation" : "is-pending";
+
+        const consolidated = companies.reduce((acc, company) => {
+          const totals = paymentTotals(company);
+          const balance = Number(company.balance) || 0;
+          const open = Math.max(0, (totals.payable || 0) - (totals.paid || 0));
+          acc.balance += balance;
+          acc.payable += totals.payable || 0;
+          acc.paid += totals.paid || 0;
+          acc.open += open;
+          acc.final += balance - open;
+          return acc;
+        }, { balance: 0, payable: 0, paid: 0, open: 0, final: 0 });
+
+        const moneyClass = (value) => value < 0 ? "pdf-negative" : "pdf-positive";
+
         const rowsForDate = (payments) => {
+          if (!payments.length) return '<div class="pdf-empty">Sem movimentação.</div>';
+          const sorted = [...payments].sort((a, b) => {
+            const rank = { paid: 0, authorized: 1, pending: 2, confirmation: 3 };
+            return (rank[a.status] ?? 9) - (rank[b.status] ?? 9);
+          });
+          const line = (payment) => `
+            <tr class="${statusClass(payment)}">
+              <td class="pdf-col-amount">${escapeHTML(formatCurrencyBR(Number(payment.amount) || 0))}</td>
+              <td class="pdf-col-desc">${escapeHTML(payment.description || "Sem descrição")}</td>
+              <td class="pdf-col-status"><span class="pdf-status-pill ${statusClass(payment)}">${escapeHTML(statusLabel(payment))}</span></td>
+              <td class="pdf-col-method">${escapeHTML(remittanceLabel(payment))}</td>
+            </tr>`;
+          const totalsBy = (list) => list.reduce((sum, payment) => sum + (Number(payment.amount) || 0), 0);
           const pending = payments.filter((p) => p.status !== "authorized" && p.status !== "paid");
           const settled = payments.filter((p) => p.status === "authorized" || p.status === "paid");
-          const line = (payment) => `
-            <tr>
-              <td>${escapeHTML(dateBR(payment.dueDate))}</td>
-              <td>${escapeHTML(formatCurrencyBR(Number(payment.amount) || 0))}</td>
-              <td>${escapeHTML(payment.description || "Sem descrição")}</td>
-              <td>${escapeHTML(statusLabel(payment))}</td>
-              <td>${escapeHTML(remittanceLabel(payment))}</td>
-            </tr>`;
-          const footer = (list, label, icon) => {
+          const footer = (list, label) => {
             if (!list.length) return "";
-            const total = list.reduce((sum, payment) => sum + (Number(payment.amount) || 0), 0);
-            return `<tr class="pdf-group-total"><td colspan="4">Total ${icon} ${label}</td><td>${formatCurrencyBR(total)}</td></tr>`;
+            return `<tr class="pdf-subtotal-row"><td colspan="3">${escapeHTML(label)}</td><td class="pdf-col-amount">${formatCurrencyBR(totalsBy(list))}</td></tr>`;
           };
-          const all = [...settled, ...pending];
-          if (!all.length) return '<div class="pdf-empty">🆗 Sem movimentação.</div>';
           return `
-            <table>
-              <thead><tr><th>Vencimento</th><th>Valor</th><th>Descrição / Fornecedor</th><th>Situação</th><th>Método / Remessa</th></tr></thead>
-              <tbody>${all.map(line).join("")}</tbody>
-              ${footer(settled, "Autorizados / Pagos", "✅")}
-              ${footer(pending, "A Autorizar", "✴️")}
+            <table class="pdf-table">
+              <thead><tr><th class="pdf-col-amount">Valor</th><th>Descrição / Fornecedor</th><th class="pdf-col-status">Situação</th><th class="pdf-col-method">Método / Remessa</th></tr></thead>
+              <tbody>${sorted.map(line).join("")}</tbody>
+              <tfoot>
+                ${footer(settled, "Subtotal autorizados/pagos")}
+                ${footer(pending, "Subtotal a autorizar/confirmação")}
+                <tr class="pdf-total-row"><td colspan="3">Total do dia</td><td class="pdf-col-amount">${formatCurrencyBR(totalsBy(payments))}</td></tr>
+              </tfoot>
             </table>`;
         };
+
         const datesForCompany = (company) => getRelevantPaymentDates(company).map((date) => {
           const payments = (company.payments || []).filter((payment) => payment.dueDate === date);
-          const total = payments.reduce((sum, payment) => sum + (Number(payment.amount) || 0), 0);
           return `<div class="pdf-date-group">
-            <div class="pdf-date-heading"><span>Vencimentos de ${escapeHTML(dateBR(date))}</span><strong>${payments.length ? `${payments.length} lançamento(s)` : "Sem movimentação"}</strong></div>
+            <div class="pdf-date-heading">
+              <span>${escapeHTML(dateBR(date))}</span>
+              <span class="pdf-date-meta">${payments.length ? `${payments.length} lançamento(s)` : "Sem movimentação"}${payments.length ? ` · ${formatCurrencyBR(payments.reduce((sum, payment) => sum + (Number(payment.amount) || 0), 0))}` : ""}</span>
+            </div>
             ${rowsForDate(payments)}
           </div>`;
         }).join("");
+
+        const generatedAt = new Date().toLocaleString("pt-BR");
         $("pdfPrintArea").innerHTML = `
-          <div class="pdf-print-header">
-            <h1>Levantamento Diário</h1>
-            <p>Período: ${escapeHTML(dateBR(state.draft.startDate))} a ${escapeHTML(dateBR(state.draft.endDate))} · ${escapeHTML(state.draft.referenceTime || "--:--")}</p>
-          </div>
-          <div class="pdf-print-overview">
-            <div class="pdf-overview-total">
-              <strong>Saldo Consolidado</strong>
-              <span>${formatCurrencyBR(companies.reduce((sum, c) => sum + (Number(c.balance) || 0), 0))}</span>
+          <header class="pdf-report-header">
+            <div>
+              <h1>Levantamento Financeiro</h1>
+              <p class="pdf-report-subtitle">Período geral: ${escapeHTML(dateBR(state.draft.startDate))} a ${escapeHTML(dateBR(state.draft.endDate))}${state.draft.referenceTime ? ` · ${escapeHTML(state.draft.referenceTime)}` : ""}</p>
             </div>
-            <div class="pdf-overview-companies">
-              ${companies.map((company, index) => `
-                <div class="pdf-overview-company-row">
-                  <span title="${escapeHTML(company.name || `Empresa ${index + 1}`)}">${escapeHTML(company.name || `Empresa ${index + 1}`)}</span>
-                  <strong>${formatCurrencyBR(Number(company.balance) || 0)}</strong>
-                </div>`).join("")}
+            <div class="pdf-report-meta">
+              <span>${escapeHTML(String(companies.length))} empresa(s)</span>
+              <span>Gerado em ${escapeHTML(generatedAt)}</span>
             </div>
-          </div>
-          <div class="pdf-print-overview">
-            <div><strong>Total a Autorizar</strong><span>${formatCurrencyBR(companies.reduce((sum, c) => sum + paymentTotals(c).pending, 0))}</span></div>
-            <div><strong>Previsão de Saldo Final</strong><span>${formatCurrencyBR(companies.reduce((sum, c) => { const t = paymentTotals(c); return sum + (Number(c.balance) || 0) - (t.pending + t.authorized); }, 0))}</span></div>
-          </div>
-          ${companies.map((company, index) => {
-            const totals = paymentTotals(company);
-            const companyPeriod = getCompanyPeriod(company);
-            return `<article class="pdf-company-section">
-              <h2>${escapeHTML(company.name || `Empresa ${index + 1}`)}</h2>
-              <p class="pdf-company-period">Período: ${escapeHTML(dateBR(companyPeriod.startDate))} a ${escapeHTML(dateBR(companyPeriod.endDate))} · ${escapeHTML(companyPeriod.referenceTime || "--:--")}</p>
-              <div class="pdf-company-summary">
-                <span>Saldo: <strong>${formatCurrencyBR(Number(company.balance) || 0)}</strong></span>
-                <span>A pagar: <strong>${formatCurrencyBR(totals.payable)}</strong></span>
-                <span>A autorizar: <strong>${formatCurrencyBR(totals.pending)}</strong></span>
-                // Lançamentos pagos já foram debitados do saldo; considera apenas pendentes + autorizados
-                <span>Saldo final: <strong>${formatCurrencyBR((Number(company.balance) || 0) - (totals.pending + totals.authorized))}</strong></span>
-              </div>
-              ${datesForCompany(company)}
-            </article>`;
-          }).join("")}`;
+          </header>
+
+          <section class="pdf-summary-cards">
+            <div class="pdf-summary-card"><span class="pdf-summary-label">Saldo Atual (consolidado)</span><strong class="pdf-summary-value">${formatCurrencyBR(consolidated.balance)}</strong></div>
+            <div class="pdf-summary-card"><span class="pdf-summary-label">Total Geral</span><strong class="pdf-summary-value">${formatCurrencyBR(consolidated.payable)}</strong></div>
+            <div class="pdf-summary-card"><span class="pdf-summary-label">Total em Aberto</span><strong class="pdf-summary-value">${formatCurrencyBR(consolidated.open)}</strong></div>
+            <div class="pdf-summary-card"><span class="pdf-summary-label">Total Pago</span><strong class="pdf-summary-value">${formatCurrencyBR(consolidated.paid)}</strong></div>
+            <div class="pdf-summary-card highlight ${moneyClass(consolidated.final)}"><span class="pdf-summary-label">Saldo Final (consolidado)</span><strong class="pdf-summary-value">${formatCurrencyBR(consolidated.final)}</strong></div>
+          </section>
+
+          <section class="pdf-company-list">
+            ${companies.map((company, index) => {
+              const totals = paymentTotals(company);
+              const balance = Number(company.balance) || 0;
+              const open = Math.max(0, (totals.payable || 0) - (totals.paid || 0));
+              const finalBalance = balance - open;
+              const companyPeriod = getCompanyPeriod(company);
+              return `<article class="pdf-company-section">
+                <div class="pdf-company-header">
+                  <div>
+                    <h2>${index + 1}. ${escapeHTML(company.name || `Empresa ${index + 1}`)}</h2>
+                    <p class="pdf-company-period">Período: ${escapeHTML(dateBR(companyPeriod.startDate))} a ${escapeHTML(dateBR(companyPeriod.endDate))}${companyPeriod.referenceTime ? ` · ${escapeHTML(companyPeriod.referenceTime)}` : ""}</p>
+                  </div>
+                </div>
+                <div class="pdf-company-summary-grid">
+                  <div class="pdf-kpi"><span>Saldo Atual</span><strong>${formatCurrencyBR(balance)}</strong></div>
+                  <div class="pdf-kpi"><span>Total Geral</span><strong>${formatCurrencyBR(totals.payable || 0)}</strong></div>
+                  <div class="pdf-kpi"><span>Total em Aberto</span><strong>${formatCurrencyBR(open)}</strong></div>
+                  <div class="pdf-kpi"><span>Total Pago</span><strong>${formatCurrencyBR(totals.paid || 0)}</strong></div>
+                  <div class="pdf-kpi highlight ${moneyClass(finalBalance)}"><span>Saldo Final</span><strong>${formatCurrencyBR(finalBalance)}</strong></div>
+                </div>
+                <div class="pdf-dates">${datesForCompany(company) || '<div class="pdf-empty">Sem lançamentos no período.</div>'}</div>
+              </article>`;
+            }).join("")}
+          </section>`;
         $("pdfPrintArea").classList.remove("hidden");
       }
 
@@ -1537,44 +1570,55 @@
         const printWindow = window.open("", "_blank");
         if (!printWindow) throw new Error("O navegador bloqueou a janela de impressão. Permita pop-ups para gerar o PDF.");
         const printStyles = `
+          @page { size: A4; margin: 12mm; }
           * { box-sizing: border-box; }
-          body { margin: 0; padding: 24px; color: #111; background: #fff; font-family: Arial, sans-serif; font-size: 12px; }
-          h1 { margin: 0; font-size: 26px; color: #102a24; }
-          h2 { margin: 26px 0 8px; border-bottom: 3px solid #1d8f68; padding-bottom: 7px; color: #102a24; font-size: 19px; }
-          p { margin: 6px 0 18px; }
-          .pdf-print-overview { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin: 20px 0 26px; }
-          .pdf-print-overview > div, .pdf-company-summary { border: 1px solid #b8d8c6; border-radius: 6px; padding: 12px; display: flex; flex-direction: column; gap: 5px; background: #f4faf6; }
-          .pdf-print-overview span { font-size: 18px; font-weight: 800; }
-          .pdf-overview-total { border: 1px solid #1d8f68; border-radius: 6px; padding: 14px 16px; background: #e8f4ee; margin: 20px 0 10px; }
-          .pdf-overview-total strong { display: block; font-size: 13px; color: #124d38; text-transform: uppercase; letter-spacing: 0.4px; }
-          .pdf-overview-total span { font-size: 24px; font-weight: 800; color: #102a24; }
-          .pdf-overview-companies { border: 1px solid #b8d8c6; border-radius: 6px; padding: 6px 12px; background: #f4faf6; margin: 0 0 26px; }
-          .pdf-overview-company-row { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 7px 0; border-bottom: 1px solid #dcebe2; font-size: 12px; }
-          .pdf-overview-company-row:last-child { border-bottom: none; }
-          .pdf-overview-company-row span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-          .pdf-overview-company-row strong { white-space: nowrap; }
-          .pdf-company-section { margin-top: 24px; }
-          .pdf-company-summary { flex-direction: row; flex-wrap: wrap; margin-bottom: 12px; }
-          .pdf-date-group { margin: 14px 0; }
-          .pdf-date-heading { display: flex; justify-content: space-between; padding: 8px 10px; background: #e8f4ee; border: 1px solid #b8d8c6; color: #124d38; font-weight: 700; }
-          .pdf-status-heading { padding: 6px 10px; margin: 10px 0 0; background: #f0f5f2; border: 1px solid #b8d8c6; font-weight: 700; }
-          .pdf-status-settled { background: #e6f4ea; color: #14532d; }
-          .pdf-status-pending { background: #fdf3e0; color: #7c4a03; }
-          table { width: 100%; border-collapse: collapse; font-size: 11px; }
-          thead th { text-align: center; }
-          th, td { border: 1px solid #cbd5d0; padding: 7px; text-align: left; }
-          tfoot th, .pdf-group-total td { background: #f0f5f2; text-align: right; }
-          .pdf-group-total td:first-child { text-align: right; font-weight: 700; }
-          .pdf-empty { color: #53665d; font-style: italic; }
+          body { margin: 0; color: #10231d; background: #fff; font-family: "Segoe UI", Arial, sans-serif; font-size: 11px; line-height: 1.4; }
+          h1 { margin: 0; font-size: 24px; color: #0f2a22; letter-spacing: -.02em; }
+          h2 { margin: 0; font-size: 17px; color: #12362b; }
+          p { margin: 0; }
+          .pdf-report-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; padding-bottom: 12px; border-bottom: 2px solid #1d6a4f; margin-bottom: 14px; }
+          .pdf-report-subtitle { margin-top: 4px; color: #3f5a50; font-size: 12px; }
+          .pdf-report-meta { text-align: right; color: #5b7268; font-size: 10.5px; display: flex; flex-direction: column; gap: 2px; }
+          .pdf-summary-cards { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; margin-bottom: 18px; }
+          .pdf-summary-card { border: 1px solid #d5e3dc; border-radius: 8px; padding: 10px 12px; background: #f7fbf9; }
+          .pdf-summary-card.highlight { background: #eef7f2; border-color: #b9d8c8; }
+          .pdf-summary-label { display: block; font-size: 10px; color: #4f685d; text-transform: uppercase; letter-spacing: .3px; margin-bottom: 4px; }
+          .pdf-summary-value { font-size: 15px; color: #10231d; }
+          .pdf-positive { color: #0f6b3d; }
+          .pdf-negative { color: #b42318; }
+          .pdf-company-section { margin: 0 0 18px; break-inside: avoid-page; page-break-inside: avoid; }
+          .pdf-company-header { display: flex; justify-content: space-between; align-items: flex-end; gap: 12px; margin-bottom: 8px; padding: 8px 10px; background: #12362b; color: #fff; border-radius: 8px 8px 0 0; }
+          .pdf-company-header h2 { color: #fff; }
+          .pdf-company-period { margin-top: 2px; font-size: 11px; color: #d8ebe3; }
+          .pdf-company-summary-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; margin-bottom: 10px; }
+          .pdf-kpi { border: 1px solid #d9e6df; border-radius: 6px; padding: 8px 10px; background: #fbfdfc; }
+          .pdf-kpi span { display: block; font-size: 10px; color: #567066; margin-bottom: 3px; }
+          .pdf-kpi strong { font-size: 13px; }
+          .pdf-kpi.highlight { background: #f1f8f4; }
+          .pdf-date-group { margin: 10px 0; border: 1px solid #dfe9e3; border-radius: 6px; overflow: hidden; break-inside: avoid; }
+          .pdf-date-heading { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 7px 10px; background: #edf5f0; color: #153d31; font-weight: 700; border-bottom: 1px solid #dfe9e3; }
+          .pdf-date-meta { font-weight: 600; font-size: 10.5px; color: #35584a; }
+          .pdf-table { width: 100%; border-collapse: collapse; font-size: 10.5px; table-layout: fixed; }
+          .pdf-table th, .pdf-table td { border-bottom: 1px solid #e6ece8; padding: 6px 8px; text-align: left; vertical-align: top; }
+          .pdf-table th { background: #f8fbfa; color: #2f4b40; font-size: 10px; text-transform: uppercase; letter-spacing: .25px; }
+          .pdf-table tr:last-child td { border-bottom: none; }
+          .pdf-col-amount { width: 96px; text-align: right; white-space: nowrap; font-weight: 600; }
+          .pdf-col-status { width: 110px; }
+          .pdf-col-method { width: 170px; color: #415a51; }
+          .pdf-col-desc { word-break: break-word; }
+          .pdf-status-pill { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 9.5px; font-weight: 700; border: 1px solid transparent; }
+          .pdf-status-pill.is-paid { background: #e7f6ec; color: #166534; border-color: #b7dec4; }
+          .pdf-status-pill.is-authorized { background: #e8f1ff; color: #1d4ed8; border-color: #bfd3ff; }
+          .pdf-status-pill.is-pending { background: #fff4db; color: #92400e; border-color: #f2d7a2; }
+          .pdf-status-pill.is-confirmation { background: #fce7f3; color: #9d174d; border-color: #f5bfdc; }
+          .pdf-subtotal-row td, .pdf-total-row td { background: #f6faf8; font-weight: 700; border-top: 1px solid #d9e6df; }
+          .pdf-total-row td { background: #edf5f0; color: #12362b; }
+          .pdf-empty { padding: 10px; color: #61786d; font-style: italic; }
           @media print {
-            body { padding: 12px; }
-            /* Quebra de página: a tabela pode partir entre linhas, mas a célula de
-               descrição/fornecedor nunca é cortada no meio e a linha fica centralizada */
-            .pdf-date-group { break-inside: auto; }
-            tr { break-inside: avoid; page-break-inside: avoid; }
-            td, th { vertical-align: middle; }
-            td:nth-child(3) { break-inside: avoid; page-break-inside: avoid; }
+            body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+            .pdf-date-group, .pdf-table tr { break-inside: avoid; page-break-inside: avoid; }
             thead { display: table-header-group; }
+            tfoot { display: table-footer-group; }
           }
         `;
         let printed = false;
