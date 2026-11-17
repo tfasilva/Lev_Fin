@@ -256,18 +256,41 @@
 
     <!-- Configurações das Empresas e Backup / Restauração -->
     <details class="custom-section" id="settingsDetails">
-      <summary>
+      <summary id="settingsSummary">
         <span>⚙️ Configurações das Empresas e Segurança dos Dados</span>
         <span style="font-size: 12px; font-weight: 500; color: var(--muted);">Personalizar nomes e backup</span>
       </summary>
-      <div class="custom-section-content">
-        <h4 style="margin: 0 0 10px 0; font-size: 14px;">Nomes das 5 Empresas</h4>
-        <p style="margin: 0 0 14px 0; font-size: 12px; color: var(--muted);">Altere os nomes padrão conforme as empresas do seu grupo:</p>
+      <div class="custom-section-content" id="settingsContent">
+        <h4 style="margin: 0 0 10px 0; font-size: 14px;">🏦 Empresas e Bancos</h4>
+        <p style="margin: 0 0 14px 0; font-size: 12px; color: var(--muted);">Informe o nome de cada empresa e o banco correspondente (conforme a quantidade de empresas).</p>
         <div class="settings-grid" id="settingsGrid"></div>
         <div style="margin-top: 14px; display: flex; gap: 8px; flex-wrap: wrap;">
-          <button class="button small primary" id="saveCompanyNamesBtn" type="button">Salvar Nomes</button>
+          <button class="button small primary" id="saveCompanyNamesBtn" type="button">Salvar Empresas e Bancos</button>
           <button class="button small" id="addCompanyBtn" type="button">＋ Adicionar Empresa</button>
-          <button class="button small" id="resetCompanyNamesBtn" type="button">Restaurar Nomes Padrão</button>
+          <button class="button small" id="resetCompanyNamesBtn" type="button">Restaurar Padrão</button>
+        </div>
+
+        <hr style="border: none; border-top: 1px solid var(--line); margin: 24px 0;">
+
+        <h4 style="margin: 0 0 10px 0; font-size: 14px;">Situações dos Lançamentos</h4>
+        <p style="margin: 0 0 10px 0; font-size: 12px; color: var(--muted);">Inclua, altere ou exclua situações. Defina se o método no banco/remessa é obrigatório e como a situação conta nos totais (em aberto, autorizado ou pago).</p>
+        <div id="statusConfigList" class="config-list"></div>
+        <div style="margin-top: 10px; display: flex; gap: 8px; flex-wrap: wrap;">
+          <button class="button small" id="addStatusBtn" type="button">＋ Adicionar Situação</button>
+        </div>
+
+        <hr style="border: none; border-top: 1px solid var(--line); margin: 24px 0;">
+
+        <h4 style="margin: 0 0 10px 0; font-size: 14px;">Métodos no Banco / Remessa</h4>
+        <p style="margin: 0 0 10px 0; font-size: 12px; color: var(--muted);">Inclua, altere ou exclua métodos e defina se exigem data de remessa.</p>
+        <div id="remittanceConfigList" class="config-list"></div>
+        <div style="margin-top: 10px; display: flex; gap: 8px; flex-wrap: wrap;">
+          <button class="button small" id="addRemittanceBtn" type="button">＋ Adicionar Método</button>
+        </div>
+
+        <div style="margin-top: 18px; display: flex; gap: 8px; flex-wrap: wrap;">
+          <button class="button small primary" id="saveAppConfigBtn" type="button">💾 Salvar Configurações (Banco/Situações/Métodos)</button>
+          <button class="button small" id="resetAppConfigBtn" type="button">Restaurar Padrão</button>
         </div>
 
         <hr style="border: none; border-top: 1px solid var(--line); margin: 24px 0;">
@@ -285,14 +308,22 @@
         <h4 style="margin: 0 0 10px 0; font-size: 14px;">🔒 Senha do histórico</h4>
         <p style="margin: 0 0 14px 0; font-size: 12px; color: var(--muted);">A senha bloqueia a visualização dos levantamentos salvos após recarregar a página. Ela é armazenada apenas como hash neste navegador.</p>
         <div class="history-password-fields">
-          <input id="historyPasswordInput" type="password" autocomplete="new-password" placeholder="Nova senha (mínimo 6 caracteres)">
-          <input id="historyPasswordConfirm" type="password" autocomplete="new-password" placeholder="Confirmar nova senha">
+          <div class="password-field">
+            <input id="historyPasswordInput" type="password" autocomplete="new-password" placeholder="Nova senha (mínimo 6 caracteres)">
+            <button type="button" class="password-toggle" data-target="historyPasswordInput" aria-label="Mostrar senha" title="Mostrar senha">👁</button>
+          </div>
+          <div class="password-field">
+            <input id="historyPasswordConfirm" type="password" autocomplete="new-password" placeholder="Confirmar nova senha">
+            <button type="button" class="password-toggle" data-target="historyPasswordConfirm" aria-label="Mostrar senha" title="Mostrar senha">👁</button>
+          </div>
           <button class="button small primary" id="saveHistoryPasswordButton" type="button">Definir / Alterar Senha</button>
           <button class="button small" id="lockHistoryButton" type="button">🔒 Bloquear Histórico</button>
         </div>
       </div>
     </details>
   </main>
+
+  <footer class="app-footer">Criado por Thiago de Freitas (contato: <a href="mailto:tfasilva92@gmail.com">tfasilva92@gmail.com</a>)</footer>
 
   <!-- Notificação Toast -->
   <div class="notice hidden" id="notice" role="status" aria-live="polite"></div>

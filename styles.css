@@ -79,11 +79,26 @@
     button, input, select, textarea { font: inherit; }
     button { cursor: pointer; }
 
+    html, body {
+      max-width: 100%;
+      overflow-x: hidden;
+    }
+
     .shell {
       max-width: 1280px;
       margin: 0 auto;
-      padding: 28px 24px 64px;
+      padding: 28px 24px 24px;
     }
+
+    .app-footer {
+      max-width: 1280px;
+      margin: 0 auto;
+      padding: 0 24px 28px;
+      color: var(--muted);
+      font-size: 12px;
+      text-align: center;
+    }
+    .app-footer a { color: var(--green); }
 
     /* Barra Superior */
     .topbar {
@@ -341,7 +356,7 @@
     .overview {
       display: grid;
       grid-template-columns: repeat(5, minmax(0, 1fr));
-      gap: 10px;
+      gap: 8px;
       margin-bottom: 20px;
     }
     .stat-card, .panel {
@@ -384,10 +399,13 @@
     }
     .stat-value {
       margin-top: 4px;
-      font-size: 18px;
+      font-size: clamp(14px, 1.4vw, 18px);
       font-weight: 800;
       letter-spacing: -.03em;
       font-variant-numeric: tabular-nums;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
     }
     .stat-breakdown {
       display: grid;
@@ -1252,8 +1270,39 @@
       color: var(--ink);
       background: var(--paper-elevated);
       border: 1px solid var(--line);
-      border-radius: var(--radius-sm);
+      border-radius: 7px;
+      font: inherit;
+      font-size: 13px;
     }
+
+    .password-field {
+      position: relative;
+      display: inline-flex;
+      align-items: center;
+    }
+    .password-field input {
+      width: 100%;
+      padding-right: 38px !important;
+    }
+    .password-toggle {
+      position: absolute;
+      right: 6px;
+      top: 50%;
+      transform: translateY(-50%);
+      background: transparent;
+      border: none;
+      cursor: pointer;
+      font-size: 14px;
+      line-height: 1;
+      padding: 2px 4px;
+      color: var(--muted);
+    }
+    .password-toggle:hover { color: var(--ink); }
+    .history-password-fields .password-field {
+      min-width: 220px;
+      flex: 1 1 220px;
+    }
+    .history-password-fields .password-field input { min-height: 34px; }
 
     /* Notificação Toast */
     .notice {
@@ -1507,4 +1556,12 @@
   .remittance-status-paid { color: var(--green); background: var(--green-pale, rgba(34, 197, 94, .14)); border-color: rgba(34, 197, 94, .35); }
   .remittance-status-pending { color: var(--amber); background: var(--amber-pale, rgba(245, 158, 11, .14)); border-color: rgba(245, 158, 11, .35); }
   .remittance-status-confirmation { color: var(--indigo, #6366f1); background: rgba(99, 102, 241, .14); border-color: rgba(99, 102, 241, .35); }
+
+  .config-list { display: grid; gap: 10px; }
+  .config-row { display: grid; grid-template-columns: 1.4fr .9fr .9fr .7fr auto; gap: 8px; align-items: end; padding: 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--canvas-subtle); }
+  .config-row.remittance-row { grid-template-columns: 1.6fr 1fr .8fr auto; }
+  .config-row label { font-size: 11px; color: var(--muted); margin-bottom: 4px; display: block; }
+  .config-row input, .config-row select { width: 100%; min-height: 34px; }
+  .config-row .button { align-self: end; }
+  @media (max-width: 900px) { .config-row, .config-row.remittance-row { grid-template-columns: 1fr 1fr; } }
     

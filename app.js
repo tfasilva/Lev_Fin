@@ -8,6 +8,54 @@
       const THEME_KEY = "levfin_theme_v2";
       const STORAGE_KEY = "levfin_storage_config_v2";
       const HISTORY_PASSWORD_KEY = "levfin_history_password_hash_v2";
+      const APP_CONFIG_KEY = "levfin_app_config_v1";
+      const SETTINGS_ACCESS_HASH = "92108843a1596c019f97352dfbf34a4332978343ca546e9bde4dd566f5ddb41c";
+
+      function defaultConfig() {
+        return {
+          statuses: [
+            { id: "pending", label: "✴️ A Autorizar (Pendente)", remittanceRequired: true, countAs: "open" },
+            { id: "authorized", label: "✳️ Autorizado", remittanceRequired: false, countAs: "authorized" },
+            { id: "paid", label: "✅ Pago", remittanceRequired: false, countAs: "paid" },
+            { id: "confirmation", label: "⚠️ Confirmação de Pagamento", remittanceRequired: true, countAs: "open" }
+          ],
+          remittanceMethods: [
+            { id: "standard", label: "✉️ Remessa", requiresDate: true },
+            { id: "pix", label: "✉️ Remessa_PIX", requiresDate: true },
+            { id: "manual", label: "📝 Lançamento Manual", requiresDate: false },
+            { id: "gestao", label: "📝 Lançamento Gestão", requiresDate: false }
+          ]
+        };
+      }
+      function normalizeConfig(raw) {
+        const base = defaultConfig();
+        const cfg = raw && typeof raw === "object" ? raw : {};
+        const normList = (list, baseList, mapItem) => {
+          if (!Array.isArray(list) || !list.length) return baseList;
+          const used = new Set();
+          const out = [];
+          list.forEach((item, idx) => {
+            const mapped = mapItem(item, idx);
+            if (!mapped || !mapped.id || used.has(mapped.id)) return;
+            used.add(mapped.id); out.push(mapped);
+          });
+          return out.length ? out : baseList;
+        };
+        const statuses = normList(cfg.statuses, base.statuses, (item, idx) => {
+          const id = String(item?.id || item?.value || ("status_" + (idx + 1))).trim().replace(/[^a-zA-Z0-9_-]/g, "_") || ("status_" + (idx + 1));
+          const label = String(item?.label || item?.name || id).trim() || id;
+          const countAs = ["open","authorized","paid"].includes(item?.countAs) ? item.countAs : (id === "paid" ? "paid" : id === "authorized" ? "authorized" : "open");
+          const remittanceRequired = item?.remittanceRequired !== undefined ? Boolean(item.remittanceRequired) : (countAs === "open");
+          return { id, label, remittanceRequired, countAs };
+        });
+        const remittanceMethods = normList(cfg.remittanceMethods, base.remittanceMethods, (item, idx) => {
+          const id = String(item?.id || item?.value || ("method_" + (idx + 1))).trim().replace(/[^a-zA-Z0-9_-]/g, "_") || ("method_" + (idx + 1));
+          const label = String(item?.label || item?.name || id).trim() || id;
+          const requiresDate = item?.requiresDate !== undefined ? Boolean(item.requiresDate) : !["manual","gestao"].includes(id);
+          return { id, label, requiresDate };
+        });
+        return { statuses, remittanceMethods };
+      }
 
       const $ = (id) => document.getElementById(id);
 
@@ -27,8 +75,45 @@
         paymentSort: "date-asc",
         ocrFilterText: "",
         ocrSort: "date-asc",
-        historyUnlocked: false
+        historyUnlocked: false,
+        config: defaultConfig(),
+        settingsUnlocked: false
       };
+
+      function getCompanyBankName(company) {
+        const name = company && (company.bankName ?? company.bank);
+        return typeof name === "string" ? name.trim() : "";
+      }
+
+      function getStatusConfig(id) {
+        const list = (state.config && state.config.statuses) || defaultConfig().statuses;
+        return list.find((s) => s.id === id) || list[0];
+      }
+      function getRemittanceMethodConfig(id) {
+        const list = (state.config && state.config.remittanceMethods) || defaultConfig().remittanceMethods;
+        return list.find((m) => m.id === id) || null;
+      }
+      function statusCountAs(id) { return getStatusConfig(id).countAs || "open"; }
+      function statusRequiresRemittance(id) { return Boolean(getStatusConfig(id).remittanceRequired); }
+      function methodRequiresDate(id) { const m = getRemittanceMethodConfig(id); return m ? Boolean(m.requiresDate) : false; }
+      function firstStatusId() { return ((state.config && state.config.statuses && state.config.statuses[0]) || defaultConfig().statuses[0]).id; }
+      function firstRemittanceId() { return ((state.config && state.config.remittanceMethods && state.config.remittanceMethods[0]) || defaultConfig().remittanceMethods[0]).id; }
+      function statusOptionsHTML(selected) {
+        return (state.config.statuses || []).map((s) => `<option value="${escapeHTML(s.id)}"${s.id === selected ? " selected" : ""}>${escapeHTML(s.label)}</option>`).join("");
+      }
+      function remittanceOptionsHTML(selected, includePlaceholder) {
+        const ph = includePlaceholder ? `<option value=""${!selected ? " selected" : ""}>⚠️ Selecione o método</option>` : "";
+        return ph + (state.config.remittanceMethods || []).map((m) => `<option value="${escapeHTML(m.id)}"${m.id === selected ? " selected" : ""}>${escapeHTML(m.label)}</option>`).join("");
+      }
+      function renderStatusFilterOptions() {
+        const sel = $("paymentStatusFilter");
+        if (!sel) return;
+        const current = state.paymentStatusFilter || "all";
+        sel.innerHTML = `<option value="all">Todas as situações</option>` + (state.config.statuses || []).map((s) => `<option value="${escapeHTML(s.id)}"${s.id === current ? " selected" : ""}>${escapeHTML(s.label)}</option>`).join("");
+        if (![...sel.options].some((o) => o.value === current)) state.paymentStatusFilter = "all";
+        sel.value = state.paymentStatusFilter;
+      }
+
 
       function todayISO() {
         const now = new Date();
@@ -41,14 +126,18 @@
           startDate: todayISO(),
           endDate: todayISO(),
           referenceTime: new Date().toTimeString().slice(0, 5),
-          companies: state.companies.map((name) => ({
-            name,
-            balance: 0,
-            payments: [],
-            startDate: "",
-            endDate: "",
-            referenceTime: ""
-          }))
+          companies: state.companies.map((entry) => {
+            const obj = entry && typeof entry === "object" ? entry : { name: typeof entry === "string" ? entry : "" };
+            return {
+              name: typeof obj.name === "string" ? obj.name : "",
+              bankName: typeof obj.bankName === "string" ? obj.bankName : (typeof obj.bank === "string" ? obj.bank : ""),
+              balance: 0,
+              payments: [],
+              startDate: "",
+              endDate: "",
+              referenceTime: ""
+            };
+          })
         };
       }
 
@@ -262,14 +351,14 @@
         return payments.reduce((totals, payment) => {
           const amount = Number(payment.amount) || 0;
           totals.payable += amount;
-          if (payment.status === "paid") {
+          const kind = statusCountAs(payment.status);
+          if (kind === "paid") {
             totals.paid += amount;
             totals.authorizedOrPaid += amount;
-          } else if (payment.status === "authorized") {
+          } else if (kind === "authorized") {
             totals.authorized += amount;
             totals.authorizedOrPaid += amount;
           } else {
-            // "pending" ou "confirmation"
             totals.pending += amount;
             totals.forecastOutflow += amount;
           }
@@ -278,11 +367,15 @@
       }
 
       function paymentRemittanceType(payment) {
-        if (["pix", "standard", "manual", "gestao"].includes(payment.remittanceType)) return payment.remittanceType;
-        if (/remessa\s*_?\s*pix/i.test(payment.remittance || "")) return "pix";
-        if (/gestao|gestão/i.test(payment.remittance || "")) return "gestao";
-        if (/remessa/i.test(payment.remittance || "")) return "standard";
-        return "manual";
+        const id = payment && payment.remittanceType;
+        if (id && getRemittanceMethodConfig(id)) return id;
+        const legacy = String((payment && payment.remittance) || "");
+        if (/remessa\s*_?\s*pix/i.test(legacy) && getRemittanceMethodConfig("pix")) return "pix";
+        if (/gestao|gestão/i.test(legacy) && getRemittanceMethodConfig("gestao")) return "gestao";
+        if (/remessa/i.test(legacy) && getRemittanceMethodConfig("standard")) return "standard";
+        if (/manual/i.test(legacy) && getRemittanceMethodConfig("manual")) return "manual";
+        const first = (state.config.remittanceMethods || [])[0];
+        return first ? first.id : "";
       }
 
       function paymentRemittanceDate(payment) {
@@ -295,10 +388,12 @@
 
       function remittanceLabel(payment) {
         const type = paymentRemittanceType(payment);
-        if (type === "manual") return "Lançamento manual";
-        if (type === "gestao") return "Lançamento Gestão";
+        const cfg = getRemittanceMethodConfig(type);
+        if (!cfg) return type || "—";
+        const base = cfg.label.replace(/^[^\p{L}\p{N}]+/u, "").trim() || cfg.label;
+        if (!cfg.requiresDate) return base;
         const date = paymentRemittanceDate(payment);
-        return `${type === "pix" ? "Remessa PIX" : "Remessa"}${date ? ` - ${dateShort(date)}` : ""}`;
+        return `${base}${date ? ` - ${dateShort(date)}` : ""}`;
       }
 
       /* Salvamento Automático de Rascunho no localStorage */
@@ -770,19 +865,16 @@
         $("ocrRows").innerHTML = visibleRows.map(({ row, originalIndex }, displayIndex) => {
           const confidence = row.confidence < 75 ? "Leitura baixa — confira com atenção" : `Confiança ${row.confidence}%`;
           const confidenceClass = row.confidence < 75 ? "import-confidence low" : "import-confidence";
-          const hidesRemittance = row.status === "authorized" || row.status === "paid";
-          const isDateHidden = hidesRemittance || !row.remittanceType || row.remittanceType === "manual" || row.remittanceType === "gestao";
+          const needsRem = statusRequiresRemittance(row.status);
+          const remType = row.remittanceType || firstRemittanceId();
+          const isDateHidden = !needsRem || !methodRequiresDate(remType);
           const remittanceClass = row.remittanceType ? "" : "ocr-field-missing";
 
-          const remittanceFieldsHtml = hidesRemittance ? "" : `
+          const remittanceFieldsHtml = !needsRem ? "" : `
               <div data-remittance-method="${originalIndex}">
                 <label>Método no Banco</label>
                 <select data-import-field="remittanceType" class="${remittanceClass}">
-                  <option value=""${!row.remittanceType ? " selected" : ""}>⚠️ Selecione o método</option>
-                  <option value="standard"${row.remittanceType === "standard" ? " selected" : ""}>✉️ Remessa</option>
-                  <option value="pix"${row.remittanceType === "pix" ? " selected" : ""}>✉️ Remessa_PIX</option>
-                  <option value="manual"${row.remittanceType === "manual" ? " selected" : ""}>📝 Lançamento Manual</option>
-                  <option value="gestao"${row.remittanceType === "gestao" ? " selected" : ""}>📝 Lançamento Gestão</option>
+                  ${remittanceOptionsHTML(row.remittanceType, true)}
                 </select>
               </div>
               <div data-remittance-date="${originalIndex}"${isDateHidden ? ' class="hidden"' : ""}>
@@ -816,10 +908,7 @@
                 <label>Situação</label>
                 <select data-import-field="status" class="${row.status ? "" : "ocr-field-missing"}">
                   <option value=""${!row.status ? " selected" : ""}>⚠️ Confirme a situação</option>
-                  <option value="pending"${row.status === "pending" ? " selected" : ""}>✴️ A Autorizar (Pendente)</option>
-                  <option value="authorized"${row.status === "authorized" ? " selected" : ""}>✳️ Autorizado</option>
-                  <option value="paid"${row.status === "paid" ? " selected" : ""}>✅ Pago</option>
-                  <option value="confirmation"${row.status === "confirmation" ? " selected" : ""}>⚠️ Confirmação de Pagamento</option>
+                  ${statusOptionsHTML(row.status)}
                 </select>
               </div>
               ${remittanceFieldsHtml}
@@ -853,15 +942,20 @@
               const parsedAmount = parseReviewAmount(input.value);
               state.importRows[index].amount = input.value.trim() === "" ? "" : (parsedAmount !== null && Number.isFinite(parsedAmount) ? parsedAmount : "");
             } else state.importRows[index][field] = input.value;
-            if (field === "dueDate" && ["standard", "pix"].includes(state.importRows[index].remittanceType)) {
+            if (field === "dueDate" && methodRequiresDate(state.importRows[index].remittanceType)) {
               state.importRows[index].remittanceDate = input.value;
               const remittanceDateInput = card.querySelector('[data-import-field="remittanceDate"]');
               if (remittanceDateInput) remittanceDateInput.value = input.value;
             }
             if (field === "status") {
               const rowData = state.importRows[index];
-              if (rowData.status === "authorized" || rowData.status === "paid") {
+              if (!statusRequiresRemittance(rowData.status)) {
                 rowData.remittanceType = "";
+                rowData.remittanceDate = "";
+              } else if (!rowData.remittanceType) {
+                rowData.remittanceType = firstRemittanceId();
+                rowData.remittanceDate = methodRequiresDate(rowData.remittanceType) ? (rowData.dueDate || "") : "";
+              } else if (!methodRequiresDate(rowData.remittanceType)) {
                 rowData.remittanceDate = "";
               }
               renderOcrPreview();
@@ -869,24 +963,25 @@
             }
 
             const rowData = state.importRows[index];
-            const isAuthorizedOrPaid = rowData.status === "authorized" || rowData.status === "paid";
+            const needsRem = statusRequiresRemittance(rowData.status);
             const needsValue = ["dueDate", "amount", "description", "status"].includes(field) ||
-              (!isAuthorizedOrPaid && field === "remittanceType") ||
-              (!isAuthorizedOrPaid && field === "remittanceDate" && !["manual", "gestao"].includes(rowData.remittanceType));
+              (needsRem && field === "remittanceType") ||
+              (needsRem && field === "remittanceDate" && methodRequiresDate(rowData.remittanceType));
 
             input.classList.toggle("ocr-field-missing", needsValue && !input.value);
             if (field === "remittanceType") {
-              const hidesDate = input.value === "manual" || input.value === "gestao" || !input.value;
+              const hidesDate = !methodRequiresDate(input.value) || !input.value;
               if (hidesDate) {
                 state.importRows[index].remittanceDate = "";
               } else {
                 state.importRows[index].remittanceDate = state.importRows[index].dueDate || "";
               }
-              card.querySelector(`[data-remittance-date="${index}"]`).classList.toggle("hidden", hidesDate);
+              const dateWrap = card.querySelector(`[data-remittance-date="${index}"]`);
+              if (dateWrap) dateWrap.classList.toggle("hidden", hidesDate);
               const dateInput = card.querySelector('[data-import-field="remittanceDate"]');
               if (dateInput) {
                 dateInput.value = state.importRows[index].remittanceDate;
-                dateInput.classList.toggle("ocr-field-missing", !state.importRows[index].remittanceDate);
+                dateInput.classList.toggle("ocr-field-missing", !hidesDate && !state.importRows[index].remittanceDate);
               }
             }
             renderOcrSummary();
@@ -973,30 +1068,29 @@
           if (!row.dueDate || row.amount === "" || !Number.isFinite(Number(row.amount)) || Number(row.amount) < 0 || !row.description.trim()) {
             throw new Error(`Confira vencimento, valor e fornecedor/histórico do lançamento ${index + 1}.`);
           }
-          if (!["pending", "authorized", "paid", "confirmation"].includes(row.status)) {
+          if (!getStatusConfig(row.status) || !(state.config.statuses || []).some((s) => s.id === row.status)) {
             throw new Error(`Confirme a situação do lançamento ${index + 1}.`);
           }
-          const isAuthorizedOrPaid = row.status === "authorized" || row.status === "paid";
-          if (!isAuthorizedOrPaid) {
-            if (!["standard", "pix", "manual", "gestao"].includes(row.remittanceType)) {
+          if (statusRequiresRemittance(row.status)) {
+            if (!getRemittanceMethodConfig(row.remittanceType)) {
               throw new Error(`Selecione o método bancário do lançamento ${index + 1}.`);
             }
-            if (!["manual", "gestao"].includes(row.remittanceType) && !row.remittanceDate) {
+            if (methodRequiresDate(row.remittanceType) && !row.remittanceDate) {
               throw new Error(`Informe a data da remessa do lançamento ${index + 1}.`);
             }
           }
         });
 
         company.payments.push(...state.importRows.map(({ dueDate, amount, description, status, remittanceType, remittanceDate }) => {
-          const isAuthorizedOrPaid = status === "authorized" || status === "paid";
-          const isManualOrGestao = remittanceType === "manual" || remittanceType === "gestao";
+          const needsRem = statusRequiresRemittance(status);
+          const method = remittanceType || firstRemittanceId();
           return {
             dueDate,
             amount: Number(amount),
             description: description.trim(),
             status,
-            remittanceType: isAuthorizedOrPaid ? "" : remittanceType,
-            remittanceDate: isAuthorizedOrPaid || isManualOrGestao ? "" : (remittanceDate || dueDate),
+            remittanceType: needsRem ? method : "",
+            remittanceDate: needsRem && methodRequiresDate(method) ? (remittanceDate || dueDate) : "",
             createdAt
           };
         }));
@@ -1015,6 +1109,7 @@
 
       /* Renderização Principal */
       function render() {
+        renderStatusFilterOptions();
         renderTabs();
         renderPayments();
         renderOverview();
@@ -1025,7 +1120,7 @@
 
       function renderTabs() {
         $("companyTabs").innerHTML = state.draft.companies.map((company, index) => {
-          const pendingCount = (company.payments || []).filter((p) => p.status === "pending" || p.status === "confirmation").length;
+          const pendingCount = (company.payments || []).filter((p) => statusCountAs(p.status) === "open").length;
           const badgeClass = pendingCount > 0 ? "tab-badge has-pending" : "tab-badge";
           const badgeText = pendingCount > 0 ? `${pendingCount} a autorizar` : `${(company.payments || []).length}`;
           return `
@@ -1079,24 +1174,25 @@
           const date = payment.dueDate || "";
           const amount = Number(payment.amount) || 0;
           dateTotals.set(date, (dateTotals.get(date) || 0) + amount);
-          if (!dateByStatus.has(date)) {
-            dateByStatus.set(date, { pending: 0, authorized: 0, paid: 0, confirmation: 0 });
-          }
+          if (!dateByStatus.has(date)) dateByStatus.set(date, {});
           const statusMap = dateByStatus.get(date);
-          if (payment.status === "pending") statusMap.pending += amount;
-          else if (payment.status === "authorized") statusMap.authorized += amount;
-          else if (payment.status === "paid") statusMap.paid += amount;
-          else if (payment.status === "confirmation") statusMap.confirmation += amount;
+          const sid = getStatusConfig(payment.status).id;
+          statusMap[sid] = (statusMap[sid] || 0) + amount;
         });
 
         $("paymentRows").innerHTML = paymentsToRender.map((payment, index) => {
           const originalIndex = company.payments.indexOf(payment);
-          const remType = paymentRemittanceType(payment);
-          const hidesDate = remType === "manual" || remType === "gestao" || payment.status === "authorized" || payment.status === "paid";
-          const hidesRemittance = payment.status === "authorized" || payment.status === "paid";
+          const statusCfg = getStatusConfig(payment.status);
+          const remType = paymentRemittanceType(payment) || firstRemittanceId();
+          const needsRemittance = statusRequiresRemittance(statusCfg.id);
+          const hidesDate = !needsRemittance || !methodRequiresDate(remType);
           const remClass = hidesDate ? "remittance-cell" : "remittance-cell has-date";
           const isLastOfDate = index === paymentsToRender.length - 1 || paymentsToRender[index + 1].dueDate !== payment.dueDate;
           const dateLabel = payment.dueDate ? dateBR(payment.dueDate) : "Data não informada";
+          const statusTotalsHtml = (state.config.statuses || []).map((s) => {
+            const val = (dateByStatus.get(payment.dueDate || "") || {})[s.id] || 0;
+            return `<span class="status-subtotal clickable-filter" data-status-filter="${escapeHTML(s.id)}">${escapeHTML(s.label)}: ${formatCurrencyBR(val)}</span>`;
+          }).join("");
           return `
             <tr data-payment="${originalIndex}">
               <td data-label="Vencimento">
@@ -1110,19 +1206,13 @@
               </td>
               <td data-label="Situação">
                 <select aria-label="Situação" data-field="status">
-                  <option value="pending"${payment.status === "pending" ? " selected" : ""}>✴️ A Autorizar (Pendente)</option>
-                  <option value="authorized"${payment.status === "authorized" ? " selected" : ""}>✳️ Autorizado</option>
-                  <option value="paid"${payment.status === "paid" ? " selected" : ""}>✅ Pago</option>
-                  <option value="confirmation"${payment.status === "confirmation" ? " selected" : ""}>⚠️ Confirmação de Pagamento</option>
+                  ${statusOptionsHTML(statusCfg.id)}
                 </select>
               </td>
               <td class="${remClass}" data-label="Método / Remessa">
-                ${hidesRemittance ? `<span class="remittance-not-needed remittance-status-${payment.status}" style="font-size: 12px;">${payment.status === "paid" ? "🟢 Pago" : payment.status === "authorized" ? "🔵 Autorizado" : "🟡 A Autorizar"} (não se aplica)</span>` : `
+                ${!needsRemittance ? `<span class="remittance-not-needed" style="font-size: 12px;">${escapeHTML(statusCfg.label)} (não se aplica)</span>` : `
                 <select aria-label="Método bancário" data-field="remittanceType">
-                  <option value="standard"${remType === "standard" ? " selected" : ""}>✉️ Remessa</option>
-                  <option value="pix"${remType === "pix" ? " selected" : ""}>✉️ Remessa_PIX</option>
-                  <option value="manual"${remType === "manual" ? " selected" : ""}>📝 Lançamento Manual</option>
-                  <option value="gestao"${remType === "gestao" ? " selected" : ""}>📝 Lançamento Gestão</option>
+                  ${remittanceOptionsHTML(remType, false)}
                 </select>
                 <input aria-label="Data da remessa" type="date" data-field="remittanceDate" value="${escapeHTML(paymentRemittanceDate(payment))}"${hidesDate ? ' class="hidden"' : ""}>`}
               </td>
@@ -1138,10 +1228,7 @@
               <td colspan="6">
                 <div class="payment-date-total-content">
                   <span>Total para ${escapeHTML(dateLabel)}:</span>
-                  <span class="status-subtotal pending clickable-filter" data-status-filter="pending">A autorizar: ${formatCurrencyBR((dateByStatus.get(payment.dueDate || "") || {}).pending || 0)}</span>
-                  <span class="status-subtotal authorized clickable-filter" data-status-filter="authorized">Autorizado: ${formatCurrencyBR((dateByStatus.get(payment.dueDate || "") || {}).authorized || 0)}</span>
-                  <span class="status-subtotal paid clickable-filter" data-status-filter="paid">Pago: ${formatCurrencyBR((dateByStatus.get(payment.dueDate || "") || {}).paid || 0)}</span>
-                  <span class="status-subtotal confirmation clickable-filter" data-status-filter="confirmation">Confirmação de pagamento: ${formatCurrencyBR((dateByStatus.get(payment.dueDate || "") || {}).confirmation || 0)}</span>
+                  ${statusTotalsHtml}
                   <span class="total-geral">Total Geral: <strong>${formatCurrencyBR(dateTotals.get(payment.dueDate || "") || 0)}</strong></span>
                 </div>
               </td>
@@ -1154,16 +1241,23 @@
           input.addEventListener("input", updatePaymentFromInput);
           input.addEventListener("change", (event) => {
             updatePaymentFromInput(event);
-            if (event.target.dataset.field === "dueDate") {
+            const field = event.target.dataset.field;
+            if (field === "dueDate" || field === "status") {
               renderPayments();
+              renderOverview();
+              renderTabs();
+              updateWhatsAppPreview();
+              scheduleAutoSave();
               return;
             }
-            if (event.target.dataset.field === "remittanceType") {
+            if (field === "remittanceType") {
               const cell = event.target.closest(".remittance-cell");
-              const dateInput = cell.querySelector('[data-field="remittanceDate"]');
-              const hides = event.target.value === "manual" || event.target.value === "gestao";
-              cell.classList.toggle("has-date", !hides);
-              dateInput.classList.toggle("hidden", hides);
+              const dateInput = cell && cell.querySelector('[data-field="remittanceDate"]');
+              if (cell && dateInput) {
+                const hides = !methodRequiresDate(event.target.value);
+                cell.classList.toggle("has-date", !hides);
+                dateInput.classList.toggle("hidden", hides);
+              }
             }
           });
           if (input.dataset.field === "amount") {
@@ -1223,15 +1317,14 @@
       function totalsMarkup(company) {
         const totals = paymentTotals(company);
         const balance = Number(company.balance) || 0;
-        // Lançamentos pagos já foram debitados do saldo; considera apenas pendentes + autorizados
-        const forecast = balance - (totals.pending + totals.authorized);
+        const open = Math.max(0, (totals.payable || 0) - (totals.paid || 0));
+        const forecast = balance - open;
         return `
           <span>Saldo Inicial: <strong>${formatCurrencyBR(balance)}</strong></span>
-          <span>A Pagar: <strong>${formatCurrencyBR(totals.payable)}</strong></span>
-          <span class="status-chip authorized">Autorizado: <strong>${formatCurrencyBR(totals.authorized)}</strong></span>
-          <span class="status-chip paid">Pago: <strong>${formatCurrencyBR(totals.paid)}</strong></span>
-          <span class="status-chip pending">A Autorizar: <strong>${formatCurrencyBR(totals.pending)}</strong></span>
-          <span class="forecast">Previsão Final: <strong class="${forecast < 0 ? "money-negative" : ""}">${formatCurrencyBR(forecast)}</strong></span>`;
+          <span>Total Geral: <strong>${formatCurrencyBR(totals.payable)}</strong></span>
+          <span class="status-chip paid">Total Pago: <strong>${formatCurrencyBR(totals.paid)}</strong></span>
+          <span class="status-chip pending">Total em Aberto: <strong>${formatCurrencyBR(open)}</strong></span>
+          <span class="forecast">Saldo Final: <strong class="${forecast < 0 ? "money-negative" : ""}">${formatCurrencyBR(forecast)}</strong></span>`;
       }
 
       function updatePaymentFromInput(event) {
@@ -1244,23 +1337,27 @@
           payment[field] = parsePaymentAmount(event.target.value);
         } else if (field === "remittanceType") {
           payment.remittanceType = event.target.value;
-          if (event.target.value === "manual" || event.target.value === "gestao") {
+          if (!methodRequiresDate(event.target.value)) {
             payment.remittanceDate = "";
           } else if (!payment.remittanceDate) {
-            payment.remittanceDate = payment.dueDate || state.draft.endDate;
+            payment.remittanceDate = payment.dueDate || state.draft.endDate || "";
           }
         } else if (field === "remittanceDate") {
           payment.remittanceDate = event.target.value;
         } else if (field === "status") {
           payment[field] = event.target.value;
-          // Lançamentos autorizados ou pagos dispensam método/remessa: limpa automaticamente
-          if (payment.status === "authorized" || payment.status === "paid") {
+          if (!statusRequiresRemittance(payment.status)) {
             payment.remittanceType = "";
+            payment.remittanceDate = "";
+          } else if (!payment.remittanceType) {
+            payment.remittanceType = firstRemittanceId();
+            payment.remittanceDate = methodRequiresDate(payment.remittanceType) ? (payment.dueDate || state.draft.endDate || "") : "";
+          } else if (!methodRequiresDate(payment.remittanceType)) {
             payment.remittanceDate = "";
           }
         } else {
           payment[field] = event.target.value;
-          if (field === "dueDate" && ["standard", "pix"].includes(paymentRemittanceType(payment))) {
+          if (field === "dueDate" && methodRequiresDate(paymentRemittanceType(payment))) {
             payment.remittanceDate = event.target.value;
             const remittanceDateInput = row.querySelector('[data-field="remittanceDate"]');
             if (remittanceDateInput) remittanceDateInput.value = event.target.value;
@@ -1401,10 +1498,13 @@
               throw new Error(`Confira os valores dos lançamentos de ${company.name}.`);
             }
             const remType = paymentRemittanceType(payment);
-            // Lançamentos autorizados ou pagos dispensam método/remessa
-            const needsRemittance = payment.status !== "authorized" && payment.status !== "paid";
-            if (needsRemittance && (remType === "standard" || remType === "pix") && !paymentRemittanceDate(payment)) {
-              throw new Error(`Informe a data da remessa de ${company.name}.`);
+            if (statusRequiresRemittance(payment.status)) {
+              if (!getRemittanceMethodConfig(remType)) {
+                throw new Error(`Selecione o método no banco/remessa em ${company.name}.`);
+              }
+              if (methodRequiresDate(remType) && !paymentRemittanceDate(payment)) {
+                throw new Error(`Informe a data da remessa de ${company.name}.`);
+              }
             }
             if (!payment.dueDate) throw new Error(`Informe o vencimento de todos os lançamentos de ${company.name}.`);
             if (!payment.description.trim()) throw new Error(`Informe a descrição de todos os lançamentos de ${company.name}.`);
@@ -1464,8 +1564,8 @@
       function renderPdfArea(selectedIndexes) {
         readMetadata();
         const companies = state.draft.companies.filter((_, index) => selectedIndexes.includes(index));
-        const statusLabel = (payment) => payment.status === "paid" ? "Pago" : payment.status === "authorized" ? "Autorizado" : payment.status === "confirmation" ? "Confirmação" : "A autorizar";
-        const statusClass = (payment) => payment.status === "paid" ? "is-paid" : payment.status === "authorized" ? "is-authorized" : payment.status === "confirmation" ? "is-confirmation" : "is-pending";
+        const statusLabel = (payment) => (getStatusConfig(payment.status).label || "").replace(/^[^\p{L}\p{N}]+/u, "").trim() || getStatusConfig(payment.status).label || "";
+        const statusClass = (payment) => { const k = statusCountAs(payment.status); return k === "paid" ? "is-paid" : k === "authorized" ? "is-authorized" : "is-pending"; };
 
         const consolidated = companies.reduce((acc, company) => {
           const totals = paymentTotals(company);
@@ -1495,8 +1595,8 @@
               <td class="pdf-col-method">${escapeHTML(remittanceLabel(payment))}</td>
             </tr>`;
           const totalsBy = (list) => list.reduce((sum, payment) => sum + (Number(payment.amount) || 0), 0);
-          const pending = payments.filter((p) => p.status !== "authorized" && p.status !== "paid");
-          const settled = payments.filter((p) => p.status === "authorized" || p.status === "paid");
+          const pending = payments.filter((p) => statusCountAs(p.status) === "open");
+          const settled = payments.filter((p) => statusCountAs(p.status) !== "open");
           const footer = (list, label) => {
             if (!list.length) return "";
             return `<tr class="pdf-subtotal-row"><td colspan="3">${escapeHTML(label)}</td><td class="pdf-col-amount">${formatCurrencyBR(totalsBy(list))}</td></tr>`;
@@ -1583,8 +1683,9 @@
         $("pdfDialog").close();
         const printWindow = window.open("", "_blank");
         if (!printWindow) throw new Error("O navegador bloqueou a janela de impressão. Permita pop-ups para gerar o PDF.");
+        const footerText = "Site Criado por Thiago de Freitas (contato: tfasilva92@gmail.com)";
         const printStyles = `
-          @page { size: A4; margin: 12mm; }
+          @page { size: A4; margin: 10mm 10mm 16mm 10mm; }
           * { box-sizing: border-box; }
           body { margin: 0; color: #10231d; background: #fff; font-family: "Segoe UI", Arial, sans-serif; font-size: 11px; line-height: 1.4; }
           h1 { margin: 0; font-size: 24px; color: #0f2a22; letter-spacing: -.02em; }
@@ -1594,11 +1695,11 @@
           .pdf-report-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; padding-bottom: 12px; border-bottom: 2px solid #1d6a4f; margin-bottom: 14px; }
           .pdf-report-subtitle { margin-top: 4px; color: #3f5a50; font-size: 12px; }
           .pdf-report-meta { text-align: right; color: #5b7268; font-size: 10.5px; display: flex; flex-direction: column; gap: 2px; }
-          .pdf-section-block { margin-bottom: 16px; }
+          .pdf-section-block { margin-bottom: 14px; }
           .pdf-section-title { font-size: 12px; text-transform: uppercase; letter-spacing: .4px; color: #35584a; margin: 0 0 8px; }
           .pdf-kpi-row { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; }
           .pdf-kpi-row-company { margin-bottom: 10px; }
-          .pdf-kpi-card { border: 1px solid #d6e2dc; border-radius: 10px; padding: 10px 12px; background: #f7faf8; border-left: 5px solid #9bb8ab; }
+          .pdf-kpi-card { border: 1px solid #d6e2dc; border-radius: 10px; padding: 10px 12px; background: #f7faf8; border-left: 5px solid #9bb8ab; break-inside: avoid; }
           .pdf-kpi-label { display: block; font-size: 10px; color: #4f685d; text-transform: uppercase; letter-spacing: .3px; margin-bottom: 4px; font-weight: 700; }
           .pdf-kpi-value { font-size: 15px; color: #10231d; font-weight: 800; }
           .pdf-kpi-card.tone-balance { background: #eaf3ff; border-color: #bfd4ff; border-left-color: #2563eb; }
@@ -1615,12 +1716,14 @@
           .pdf-kpi-card.tone-final.pdf-positive .pdf-kpi-label, .pdf-kpi-card.tone-final.pdf-positive .pdf-kpi-value { color: #166534; }
           .pdf-positive { color: #166534; }
           .pdf-negative { color: #991b1b; }
-          .pdf-company-section { margin: 0 0 18px; break-inside: avoid-page; page-break-inside: avoid; }
-          .pdf-company-header { display: flex; justify-content: space-between; align-items: flex-end; gap: 12px; margin-bottom: 8px; padding: 8px 10px; background: #12362b; color: #fff; border-radius: 8px 8px 0 0; }
+          .pdf-company-list { display: block; }
+          .pdf-company-section { margin: 0 0 14px; break-inside: auto; page-break-inside: auto; }
+          .pdf-company-header { display: flex; justify-content: space-between; align-items: flex-end; gap: 12px; margin-bottom: 8px; padding: 8px 10px; background: #12362b; color: #fff; border-radius: 8px 8px 0 0; break-inside: avoid; page-break-inside: avoid; }
           .pdf-company-header h2 { color: #fff; }
           .pdf-company-period { margin-top: 2px; font-size: 11px; color: #d8ebe3; }
-          .pdf-date-group { margin: 10px 0; border: 1px solid #dfe9e3; border-radius: 6px; overflow: hidden; break-inside: avoid; }
-          .pdf-date-heading { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 7px 10px; background: #edf5f0; color: #153d31; font-weight: 700; border-bottom: 1px solid #dfe9e3; }
+          .pdf-dates { display: block; }
+          .pdf-date-group { margin: 8px 0; border: 1px solid #dfe9e3; border-radius: 6px; overflow: hidden; break-inside: auto; page-break-inside: auto; }
+          .pdf-date-heading { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 7px 10px; background: #edf5f0; color: #153d31; font-weight: 700; border-bottom: 1px solid #dfe9e3; break-inside: avoid; page-break-inside: avoid; }
           .pdf-date-meta { font-weight: 600; font-size: 10.5px; color: #35584a; }
           .pdf-table { width: 100%; border-collapse: collapse; font-size: 10.5px; table-layout: fixed; }
           .pdf-table th, .pdf-table td { border-bottom: 1px solid #e6ece8; padding: 6px 8px; text-align: left; vertical-align: top; }
@@ -1638,9 +1741,10 @@
           .pdf-subtotal-row td, .pdf-total-row td { background: #f6faf8; font-weight: 700; border-top: 1px solid #d9e6df; }
           .pdf-total-row td { background: #edf5f0; color: #12362b; }
           .pdf-empty { padding: 10px; color: #61786d; font-style: italic; }
+          .pdf-page-footer { position: fixed; left: 0; right: 0; bottom: 0; text-align: center; font-size: 9px; color: #5b7268; border-top: 1px solid #dfe9e3; padding: 4px 10mm 0; background: #fff; }
           @media print {
             body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-            .pdf-date-group, .pdf-table tr { break-inside: avoid; page-break-inside: avoid; }
+            .pdf-table tr, .pdf-date-heading, .pdf-company-header, .pdf-kpi-card { break-inside: avoid; page-break-inside: avoid; }
             thead { display: table-header-group; }
             tfoot { display: table-footer-group; }
           }
@@ -1653,7 +1757,7 @@
           printWindow.print();
         };
         printWindow.document.open();
-        printWindow.document.write(`<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>Levantamento Financeiro</title><style>${printStyles}</style></head><body>${$("pdfPrintArea").innerHTML}</body></html>`);
+        printWindow.document.write(`<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>Levantamento Financeiro</title><style>${printStyles}</style></head><body><div class="pdf-content">${$("pdfPrintArea").innerHTML}</div><footer class="pdf-page-footer">${footerText}</footer></body></html>`);
         printWindow.document.close();
         printWindow.onload = print;
         window.setTimeout(() => {
@@ -1668,7 +1772,9 @@
         if (!report) throw new Error("Levantamento não encontrado.");
         report._storage = "local";
         report.companies.forEach((company, index) => {
-          if (!company.name || company.name === `Empresa ${index + 1}`) company.name = state.companies[index] || "";
+          const entry = state.companies[index];
+          if (!company.name || company.name === `Empresa ${index + 1}`) company.name = (entry && typeof entry === "object" ? entry.name : (typeof entry === "string" ? entry : "")) || "";
+          if (company.bankName === undefined || company.bankName === null) company.bankName = (entry && typeof entry === "object" ? (entry.bankName || "") : "");
           // Garante período individual por empresa (compatibilidade com relatórios antigos)
           if (company.startDate === undefined) company.startDate = "";
           if (company.endDate === undefined) company.endDate = "";
@@ -1771,7 +1877,7 @@
         }
 
         const payments = (company.payments || [])
-          .filter((p) => p.status !== "paid" && (Number(p.amount) || 0) > 0)
+          .filter((p) => statusCountAs(p.status) !== "paid" && (Number(p.amount) || 0) > 0)
           .slice()
           .sort((a, b) => {
             const dateCmp = String(a.dueDate || "").localeCompare(String(b.dueDate || ""));
@@ -1869,7 +1975,6 @@
         const lines = [];
         const totals = paymentTotals(company);
         const companyName = company.name.trim() || `Empresa ${index + 1}`;
-        const balanceLabel = "Saldo Bradesco";
         const balanceFormatted = formatCurrencyBR(Number(company.balance) || 0);
         const totalPayableNum = Number(totals.payable) || 0;
         const totalPaidNum = Number(totals.paid) || 0;
@@ -1883,7 +1988,7 @@
         const saldoFinalIcon = saldoFinal >= 0 ? "🟢" : "🔴";
 
         lines.push(`${index + 1}️⃣ *${companyName}*`);
-        lines.push("🏦 Banco: Bradesco");
+        lines.push(`🏦 Banco: ${getCompanyBankName(company) || "—"}`);
         lines.push(`💵 Saldo Atual: *${balanceFormatted}*`);
         lines.push(`${saldoFinalIcon} Saldo Final: *${formatCurrencyBR(saldoFinal)}*`);
         lines.push(WHATSAPP_SEPARATOR);
@@ -1908,42 +2013,33 @@
             }
 
             const dayPayable = paymentsForDate.reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
-            const dayAuthorized = paymentsForDate
-              .filter((p) => p.status === "authorized")
-              .reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
-            const dayPaid = paymentsForDate
-              .filter((p) => p.status === "paid")
-              .reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
-            const dayPending = paymentsForDate
-              .filter((p) => p.status === "pending" || p.status === "confirmation")
-              .reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
-            const hasConfirmation = paymentsForDate.some((p) => p.status === "confirmation");
-            const paymentsToDescribe = paymentsForDate.filter((p) => p.status !== "authorized" && p.status !== "paid");
+            const paymentsToDescribe = paymentsForDate.filter((p) => statusRequiresRemittance(p.status));
 
-            lines.push(`➡️ *PARA ${dateBR(date)}:*${hasConfirmation ? " _(CONFIRMAÇÃO DE PAGAMENTO)_" : ""}`);
+            lines.push(`➡️ *PARA ${dateBR(date)}:*`);
             lines.push(`💵 *Total a pagar:* *${formatCurrencyBR(dayPayable)}*`);
-            lines.push(`✳️ *Autorizado:* *${formatCurrencyBR(dayAuthorized)}*`);
-            lines.push(`💚 *Pago:* *${formatCurrencyBR(dayPaid)}*`);
-            if (dayPending > 0) lines.push(`✴️ *A autorizar:* *${formatCurrencyBR(dayPending)}*`);
+            (state.config.statuses || []).forEach((s) => {
+              const val = paymentsForDate.filter((p) => getStatusConfig(p.status).id === s.id).reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
+              if (s.countAs !== "open" || val > 0) lines.push(`${s.label}: *${formatCurrencyBR(val)}*`);
+            });
 
             const groups = {};
             paymentsToDescribe.forEach((payment) => {
               const type = paymentRemittanceType(payment);
-              const remittanceDate = (type === "standard" || type === "pix") ? paymentRemittanceDate(payment) : "";
+              const remittanceDate = methodRequiresDate(type) ? paymentRemittanceDate(payment) : "";
               const key = `${type}_${remittanceDate}`;
               if (!groups[key]) groups[key] = { type, remittanceDate, items: [] };
               groups[key].items.push(payment);
             });
 
-            const remittancePriority = { standard: 0, pix: 1, manual: 2, gestao: 3 };
+            const remOrder = (state.config.remittanceMethods || []).map((m) => m.id);
             Object.values(groups)
-              .sort((a, b) => (remittancePriority[a.type] ?? 99) - (remittancePriority[b.type] ?? 99))
+              .sort((a, b) => (remOrder.indexOf(a.type) === -1 ? 99 : remOrder.indexOf(a.type)) - (remOrder.indexOf(b.type) === -1 ? 99 : remOrder.indexOf(b.type)))
               .forEach((group) => {
               const groupTotal = group.items.reduce((sum, payment) => sum + (Number(payment.amount) || 0), 0);
-              const typeLabel = group.type === "standard" ? "Remessa"
-                : group.type === "pix" ? "Remessa PIX"
-                  : group.type === "gestao" ? "Lançamento Gestão" : "Lançamento Manual";
-              const dateLabel = group.remittanceDate ? ` ${dateShort(group.remittanceDate)}` : "";
+              const mcfg = getRemittanceMethodConfig(group.type);
+              const typeLabel = mcfg ? mcfg.label : (group.type || "Método");
+              const needsDate = mcfg ? mcfg.requiresDate : ["standard","pix"].includes(group.type);
+              const dateLabel = needsDate && group.remittanceDate ? ` ${dateShort(group.remittanceDate)}` : "";
               lines.push("");
               lines.push(`✉️ *${typeLabel}${dateLabel}* — *${formatCurrencyBR(groupTotal)}*`);
               group.items.forEach((payment) => {
@@ -2037,15 +2133,15 @@
               } else {
                 const dayPayable = paymentsForDate.reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
                 const dayAuthorized = paymentsForDate
-                  .filter((p) => p.status === "authorized")
+                  .filter((p) => statusCountAs(p.status) === "authorized")
                   .reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
                 const dayPaid = paymentsForDate
-                  .filter((p) => p.status === "paid")
+                  .filter((p) => statusCountAs(p.status) === "paid")
                   .reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
                 const dayPending = paymentsForDate
-                  .filter((p) => p.status === "pending" || p.status === "confirmation")
+                  .filter((p) => statusCountAs(p.status) === "open")
                   .reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
-                const hasConfirmation = paymentsForDate.some((p) => p.status === "confirmation");
+                const hasConfirmation = false;
 
                 const dateTag = hasConfirmation ? " (CONFIRMAÇÃO DE PAGAMENTO)" : "";
                 lines.push(`➡️ *PARA ${dateBR(date)}:*${dateTag}`);
@@ -2058,7 +2154,7 @@
                 const groups = {};
                 paymentsForDate.forEach((p) => {
                   const type = paymentRemittanceType(p);
-                  const rDate = (type === "standard" || type === "pix") ? paymentRemittanceDate(p) : "";
+                  const rDate = methodRequiresDate(type) ? paymentRemittanceDate(p) : "";
                   const key = `${type}_${rDate}`;
                   if (!groups[key]) {
                     groups[key] = { type, rDate, items: [] };
@@ -2197,10 +2293,7 @@
 
         state.draft.companies.forEach((company) => {
           (company.payments || []).forEach((p) => {
-            let statusText = "A Autorizar";
-            if (p.status === "paid") statusText = "Pago";
-            else if (p.status === "authorized") statusText = "Autorizado";
-            else if (p.status === "confirmation") statusText = "Confirmação de Pagamento";
+            const statusText = (getStatusConfig(p.status).label || p.status || "");
 
             const valFormatted = Number(p.amount || 0).toFixed(2).replace(".", ",");
             rows.push([
@@ -2248,13 +2341,15 @@
           $("endDate").value = company.endDate;
           $("referenceTime").value = company.referenceTime;
         }
+        const defStatus = (state.config.statuses.find((s) => s.id === "pending") || state.config.statuses[0] || { id: "pending" }).id;
+        const defMethod = firstRemittanceId();
         company.payments.push({
           dueDate: firstPaymentDate,
           amount: "",
           description: "",
-          status: "pending",
-          remittanceType: "standard",
-          remittanceDate: firstPaymentDate,
+          status: defStatus,
+          remittanceType: statusRequiresRemittance(defStatus) ? defMethod : "",
+          remittanceDate: statusRequiresRemittance(defStatus) && methodRequiresDate(defMethod) ? firstPaymentDate : "",
           createdAt
         });
         renderPayments();
@@ -2275,13 +2370,24 @@
         readActiveCompany();
         const company = state.draft.companies[state.activeCompany];
         if (!company.payments.length) return;
-        company.payments.forEach((p) => { p.status = newStatus; });
+        company.payments.forEach((p) => {
+          p.status = newStatus;
+          if (!statusRequiresRemittance(p.status)) {
+            p.remittanceType = "";
+            p.remittanceDate = "";
+          } else if (!p.remittanceType) {
+            p.remittanceType = firstRemittanceId();
+            p.remittanceDate = methodRequiresDate(p.remittanceType) ? (p.dueDate || "") : "";
+          } else if (!methodRequiresDate(p.remittanceType)) {
+            p.remittanceDate = "";
+          }
+        });
         renderPayments();
         renderTabs();
         renderOverview();
         updateWhatsAppPreview();
         scheduleAutoSave();
-        notify(`Todos os lançamentos de ${company.name} foram marcados como ${newStatus === "paid" ? "Pagos" : "Autorizados"}!`);
+        notify(`Todos os lançamentos de ${company.name} foram marcados como ${getStatusConfig(newStatus).label}.`);
       }
 
       function clearCompanyPayments() {
@@ -2309,60 +2415,262 @@
         }
       }
 
+      /* Acesso e Configurações do Sistema */
+      function updateSettingsAccessUI() {
+        const content = $("settingsContent");
+        if (!content) return;
+        content.classList.toggle("hidden", !state.settingsUnlocked);
+        let gate = $("settingsGate");
+        if (!gate && content.parentElement) {
+          gate = document.createElement("div");
+          gate.id = "settingsGate";
+          gate.className = "settings-gate";
+          gate.innerHTML = `
+            <p style="margin:0 0 10px 0; font-size:13px; color:var(--muted);">Digite a senha para acessar as configurações.</p>
+            <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
+              <div class="password-field" style="max-width:260px; flex:1 1 220px;">
+                <input id="settingsAccessPassword" type="password" placeholder="Senha das configurações" autocomplete="current-password">
+                <button type="button" class="password-toggle" data-target="settingsAccessPassword" aria-label="Mostrar senha" title="Mostrar senha">👁</button>
+              </div>
+              <button class="button small primary" id="unlockSettingsBtn" type="button">Desbloquear</button>
+            </div>`;
+          content.parentElement.insertBefore(gate, content);
+          $("unlockSettingsBtn").addEventListener("click", () => unlockSettingsAccess().catch(showError));
+          $("settingsAccessPassword").addEventListener("keydown", (e) => { if (e.key === "Enter") unlockSettingsAccess().catch(showError); });
+        }
+        if (gate) gate.classList.toggle("hidden", state.settingsUnlocked);
+        if (state.settingsUnlocked) {
+          renderAppConfigSettings();
+        }
+      }
+      async function unlockSettingsAccess() {
+        const input = $("settingsAccessPassword");
+        const value = input ? input.value : "";
+        const hash = await hashHistoryPassword(value);
+        if (hash !== SETTINGS_ACCESS_HASH) throw new Error("Senha das configurações inválida.");
+        state.settingsUnlocked = true;
+        if (input) input.value = "";
+        updateSettingsAccessUI();
+        notify("Configurações desbloqueadas.");
+      }
+      function setupSettingsAccess() {
+        const details = $("settingsDetails");
+        if (!details) return;
+        details.addEventListener("toggle", () => {
+          if (details.open && !state.settingsUnlocked) {
+            updateSettingsAccessUI();
+            setTimeout(() => { const i = $("settingsAccessPassword"); if (i) i.focus(); }, 0);
+          } else {
+            updateSettingsAccessUI();
+          }
+        });
+        updateSettingsAccessUI();
+      }
+
+      const STATUS_ID_OPTIONS = [
+        { id: "pending", label: "Pendente (A Autorizar)" },
+        { id: "authorized", label: "Autorizado" },
+        { id: "paid", label: "Pago" },
+        { id: "confirmation", label: "Confirmação de Pagamento" }
+      ];
+      const REMITTANCE_ID_OPTIONS = [
+        { id: "standard", label: "Remessa" },
+        { id: "pix", label: "Remessa PIX" },
+        { id: "manual", label: "Lançamento Manual" },
+        { id: "gestao", label: "Lançamento Gestão" }
+      ];
+      function statusIdOptionsHTML(selected, usedIds) {
+        const opts = [...STATUS_ID_OPTIONS];
+        if (selected && !opts.some((o) => o.id === selected)) opts.push({ id: selected, label: `Personalizado (${selected})` });
+        return opts.map((o) => {
+          const disabled = usedIds && usedIds.has(o.id) && o.id !== selected ? " disabled" : "";
+          return `<option value="${escapeHTML(o.id)}"${o.id === selected ? " selected" : ""}${disabled}>${escapeHTML(o.label)}</option>`;
+        }).join("");
+      }
+      function remittanceIdOptionsHTML(selected, usedIds) {
+        const opts = [...REMITTANCE_ID_OPTIONS];
+        if (selected && !opts.some((o) => o.id === selected)) opts.push({ id: selected, label: `Personalizado (${selected})` });
+        return opts.map((o) => {
+          const disabled = usedIds && usedIds.has(o.id) && o.id !== selected ? " disabled" : "";
+          return `<option value="${escapeHTML(o.id)}"${o.id === selected ? " selected" : ""}${disabled}>${escapeHTML(o.label)}</option>`;
+        }).join("");
+      }
+
+      function configStatusRow(status, index) {
+        const usedIds = new Set((state.config.statuses || []).map((s) => s.id));
+        return `
+          <div class="config-row status-row" data-status-index="${index}">
+            <div><label>Rótulo</label><input type="text" data-cfg="label" value="${escapeHTML(status.label || "")}"></div>
+            <div><label>Conta como</label><select data-cfg="countAs">
+              <option value="open"${status.countAs === "open" ? " selected" : ""}>Em aberto</option>
+              <option value="authorized"${status.countAs === "authorized" ? " selected" : ""}>Autorizado</option>
+              <option value="paid"${status.countAs === "paid" ? " selected" : ""}>Pago</option>
+            </select></div>
+            <div><label>Método/Remessa</label><select data-cfg="remittanceRequired">
+              <option value="true"${status.remittanceRequired ? " selected" : ""}>Obrigatório</option>
+              <option value="false"${!status.remittanceRequired ? " selected" : ""}>Não se aplica</option>
+            </select></div>
+            <div><label>Identificador (ID)</label><select data-cfg="id">${statusIdOptionsHTML(status.id, usedIds)}</select></div>
+            <div><button class="button small danger" type="button" data-remove-status="${index}" title="Excluir">✕</button></div>
+          </div>`;
+      }
+      function configRemittanceRow(method, index) {
+        const usedIds = new Set((state.config.remittanceMethods || []).map((m) => m.id));
+        return `
+          <div class="config-row remittance-row" data-remittance-index="${index}">
+            <div><label>Rótulo</label><input type="text" data-cfg="label" value="${escapeHTML(method.label || "")}"></div>
+            <div><label>Exige data da remessa</label><select data-cfg="requiresDate">
+              <option value="true"${method.requiresDate ? " selected" : ""}>Sim</option>
+              <option value="false"${!method.requiresDate ? " selected" : ""}>Não</option>
+            </select></div>
+            <div><label>Identificador (ID)</label><select data-cfg="id">${remittanceIdOptionsHTML(method.id, usedIds)}</select></div>
+            <div><button class="button small danger" type="button" data-remove-remittance="${index}" title="Excluir">✕</button></div>
+          </div>`;
+      }
+      function renderAppConfigSettings() {
+        const sl = $("statusConfigList");
+        if (sl) {
+          sl.innerHTML = (state.config.statuses || []).map(configStatusRow).join("");
+          sl.querySelectorAll("[data-remove-status]").forEach((btn) => btn.addEventListener("click", () => {
+            const idx = Number(btn.dataset.removeStatus);
+            if ((state.config.statuses || []).length <= 1) return notify("Mantenha pelo menos uma situação.", true);
+            state.config.statuses.splice(idx, 1);
+            renderAppConfigSettings();
+          }));
+        }
+        const rl = $("remittanceConfigList");
+        if (rl) {
+          rl.innerHTML = (state.config.remittanceMethods || []).map(configRemittanceRow).join("");
+          rl.querySelectorAll("[data-remove-remittance]").forEach((btn) => btn.addEventListener("click", () => {
+            const idx = Number(btn.dataset.removeRemittance);
+            if ((state.config.remittanceMethods || []).length <= 1) return notify("Mantenha pelo menos um método.", true);
+            state.config.remittanceMethods.splice(idx, 1);
+            renderAppConfigSettings();
+          }));
+        }
+      }
+      function readAppConfigFromUI() {
+        const statuses = [];
+        const seenStatus = new Set();
+        $("statusConfigList")?.querySelectorAll(".status-row").forEach((row) => {
+          const id = row.querySelector('[data-cfg="id"]').value.trim();
+          const label = row.querySelector('[data-cfg="label"]').value.trim() || id;
+          const countAs = row.querySelector('[data-cfg="countAs"]').value;
+          const remittanceRequired = row.querySelector('[data-cfg="remittanceRequired"]').value === "true";
+          if (id && !seenStatus.has(id)) { seenStatus.add(id); statuses.push({ id, label, countAs, remittanceRequired }); }
+        });
+        const remittanceMethods = [];
+        const seenMethod = new Set();
+        $("remittanceConfigList")?.querySelectorAll(".remittance-row").forEach((row) => {
+          const id = row.querySelector('[data-cfg="id"]').value.trim();
+          const label = row.querySelector('[data-cfg="label"]').value.trim() || id;
+          const requiresDate = row.querySelector('[data-cfg="requiresDate"]').value === "true";
+          if (id && !seenMethod.has(id)) { seenMethod.add(id); remittanceMethods.push({ id, label, requiresDate }); }
+        });
+        return normalizeConfig({ statuses, remittanceMethods });
+      }
+      async function saveAppConfig() {
+        if (!state.settingsUnlocked) throw new Error("Desbloqueie as configurações para salvar.");
+        state.config = readAppConfigFromUI();
+        await storeRequest("settings", "readwrite", (store) => store.put({ key: APP_CONFIG_KEY, value: state.config }));
+        renderStatusFilterOptions();
+        renderPayments();
+        renderOverview();
+        updateWhatsAppPreview();
+        scheduleAutoSave();
+        notify("Configurações salvas.");
+      }
+      async function resetAppConfig() {
+        if (!state.settingsUnlocked) throw new Error("Desbloqueie as configurações para restaurar.");
+        if (!window.confirm("Restaurar situações e métodos para o padrão?")) return;
+        state.config = defaultConfig();
+        await storeRequest("settings", "readwrite", (store) => store.put({ key: APP_CONFIG_KEY, value: state.config }));
+        renderStatusFilterOptions();
+        renderPayments();
+        renderOverview();
+        updateWhatsAppPreview();
+        renderAppConfigSettings();
+        scheduleAutoSave();
+        notify("Configurações restauradas para o padrão.");
+      }
+      function addStatusConfig() {
+        if (!state.settingsUnlocked) return;
+        const used = new Set((state.config.statuses || []).map((s) => s.id));
+        const next = STATUS_ID_OPTIONS.find((o) => !used.has(o.id));
+        if (!next) return notify("Todas as situações disponíveis já foram adicionadas.", true);
+        state.config.statuses.push({ id: next.id, label: next.label, remittanceRequired: next.id === "pending" || next.id === "confirmation", countAs: next.id === "paid" ? "paid" : next.id === "authorized" ? "authorized" : "open" });
+        renderAppConfigSettings();
+      }
+      function addRemittanceConfig() {
+        if (!state.settingsUnlocked) return;
+        const used = new Set((state.config.remittanceMethods || []).map((m) => m.id));
+        const next = REMITTANCE_ID_OPTIONS.find((o) => !used.has(o.id));
+        if (!next) return notify("Todos os métodos disponíveis já foram adicionados.", true);
+        state.config.remittanceMethods.push({ id: next.id, label: next.label, requiresDate: next.id === "standard" || next.id === "pix" });
+        renderAppConfigSettings();
+      }
+
       /* Configuração dos Nomes das Empresas */
       function renderCompanySettings() {
         const grid = $("settingsGrid");
-        grid.innerHTML = state.companies.map((name, index) => `
-          <div class="field">
+        grid.innerHTML = state.companies.map((entry, index) => {
+          const company = entry && typeof entry === "object" ? entry : { name: typeof entry === "string" ? entry : "", bankName: "" };
+          return `
+          <div class="field company-config-field">
             <label for="companyNameInput_${index}">Empresa ${index + 1}</label>
-            <input type="text" id="companyNameInput_${index}" data-company-name-index="${index}" value="${escapeHTML(name)}">
-          </div>
-        `).join("");
+            <input type="text" id="companyNameInput_${index}" data-company-name-index="${index}" value="${escapeHTML(company.name || "")}" placeholder="Nome da empresa">
+            <label for="companyBankInput_${index}" style="margin-top:8px;">Banco da empresa ${index + 1}</label>
+            <input type="text" id="companyBankInput_${index}" data-company-bank-index="${index}" value="${escapeHTML(company.bankName || "")}" placeholder="Ex.: Bradesco">
+          </div>`;
+        }).join("");
+        updateSettingsAccessUI();
       }
 
       async function saveCompanyNames() {
         const inputs = $("settingsGrid").querySelectorAll("[data-company-name-index]");
-        const newNames = [];
-        inputs.forEach((input, index) => {
-          const val = input.value.trim();
-          newNames.push(val);
+        const newCompanies = [];
+        inputs.forEach((input) => {
+          const idx = Number(input.dataset.companyNameIndex);
+          const name = input.value.trim();
+          const bankInput = $("settingsGrid").querySelector(`[data-company-bank-index="${idx}"]`);
+          const bankName = bankInput ? bankInput.value.trim() : ((state.companies[idx] && state.companies[idx].bankName) || "");
+          newCompanies.push({ name, bankName });
         });
-        state.companies = newNames;
+        state.companies = newCompanies;
         if (state.draft && state.draft.companies) {
           state.draft.companies.forEach((comp, idx) => {
-            comp.name = state.companies[idx];
+            const entry = state.companies[idx] || { name: "", bankName: "" };
+            comp.name = entry.name;
+            comp.bankName = entry.bankName;
           });
         }
         await storeRequest("settings", "readwrite", (store) => store.put({ key: "companyNames", value: state.companies }));
-        // Sincronização com servidor removida - dados permanecem apenas neste navegador
         renderTabs();
         updateWhatsAppPreview();
         scheduleAutoSave();
-        notify("Nomes das empresas atualizados com sucesso!");
+        notify("Empresas e bancos atualizados com sucesso!");
       }
 
       function addCompany() {
         readActiveCompany();
-        state.companies.push("");
-        state.draft.companies.push({ name: "", balance: 0, payments: [], startDate: "", endDate: "", referenceTime: "" });
+        state.companies.push({ name: "", bankName: "" });
+        state.draft.companies.push({ name: "", bankName: "", balance: 0, payments: [], startDate: "", endDate: "", referenceTime: "" });
         renderCompanySettings();
         renderTabs();
         scheduleAutoSave();
       }
 
       async function resetCompanyNames() {
-        if (!window.confirm("Restaurar os nomes das empresas para o padrão?")) return;
-        state.companies = [""];
-        state.draft.companies.forEach((comp) => { comp.name = ""; });
-        state.companies = state.draft.companies.map(() => "");
-        state.activeCompany = Math.min(state.activeCompany, state.draft.companies.length - 1);
+        if (!window.confirm("Restaurar empresas e bancos para o padrão?")) return;
+        state.companies = [{ name: "", bankName: "" }];
+        state.draft.companies.forEach((comp) => { comp.name = ""; comp.bankName = ""; });
+        state.activeCompany = Math.min(state.activeCompany, Math.max(0, state.draft.companies.length - 1));
         await storeRequest("settings", "readwrite", (store) => store.put({ key: "companyNames", value: state.companies }));
-        // Sincronização com servidor removida - dados permanecem apenas neste navegador
         renderCompanySettings();
         renderTabs();
         updateWhatsAppPreview();
         scheduleAutoSave();
-        notify("Nomes restaurados para o padrão.");
+        notify("Empresas e bancos restaurados para o padrão.");
       }
 
       /* Backup e Restauração */
@@ -2372,9 +2680,10 @@
         const settings = await storeRequest("settings", "readonly", (store) => store.getAll());
         const backupData = {
           app: "LevFin",
-          version: "2.1",
+          version: "2.2",
           exportedAt: new Date().toISOString(),
           companies: state.companies,
+          config: state.config,
           reports,
           settings
         };
@@ -2405,12 +2714,16 @@
             await storeRequest("reports", "readwrite", (store) => store.put(report));
           }
           if (Array.isArray(data.companies) && data.companies.length > 0) {
-            state.companies = data.companies;
+            state.companies = data.companies.map((item) => item && typeof item === "object"
+              ? { name: typeof item.name === "string" ? item.name : "", bankName: typeof item.bankName === "string" ? item.bankName : (typeof item.bank === "string" ? item.bank : "") }
+              : { name: typeof item === "string" ? item : "", bankName: "" });
             await storeRequest("settings", "readwrite", (store) => store.put({ key: "companyNames", value: state.companies }));
           }
-          await renderHistory();
-          renderCompanySettings();
-          renderTabs();
+          if (data.config) {
+            state.config = normalizeConfig(data.config);
+            await storeRequest("settings", "readwrite", (store) => store.put({ key: APP_CONFIG_KEY, value: state.config }));
+          }
+          render();
           notify("Backup restaurado com sucesso!");
         } catch (err) {
           showError(err);
@@ -2552,18 +2865,31 @@
           }
 
           state.companies = savedNames.length
-            ? savedNames.map((name) => typeof name === "string" ? name.trim() : "")
-            : [""];
+            ? savedNames.map((item) => {
+                if (item && typeof item === "object") {
+                  return { name: typeof item.name === "string" ? item.name.trim() : "", bankName: typeof item.bankName === "string" ? item.bankName.trim() : (typeof item.bank === "string" ? item.bank.trim() : "") };
+                }
+                return { name: typeof item === "string" ? item.trim() : "", bankName: "" };
+              })
+            : [{ name: "", bankName: "" }];
 
           if (JSON.stringify(savedNames) !== JSON.stringify(state.companies)) {
             await storeRequest("settings", "readwrite", (store) => store.put({ key: "companyNames", value: state.companies }));
           }
 
+          const savedAppConfig = await storeRequest("settings", "readonly", (store) => store.get(APP_CONFIG_KEY)).catch(() => null);
+          if (savedAppConfig && savedAppConfig.value) state.config = normalizeConfig(savedAppConfig.value);
+
           const autoSaved = loadAutoSavedDraft();
           if (autoSaved) {
             state.draft = autoSaved;
             state.draft.companies.forEach((comp, idx) => {
-              if (state.companies[idx]) comp.name = state.companies[idx];
+              const entry = state.companies[idx];
+              if (entry) {
+                comp.name = entry.name || "";
+                if (!comp.bankName) comp.bankName = entry.bankName || "";
+              }
+              if (comp.bankName === undefined) comp.bankName = "";
               if (comp.startDate === undefined) comp.startDate = "";
               if (comp.endDate === undefined) comp.endDate = "";
               if (comp.referenceTime === undefined) comp.referenceTime = "";
@@ -2574,8 +2900,12 @@
             state.draft = newDraft();
           }
           state.historyUnlocked = true;
+          state.settingsUnlocked = false;
+          const sd = $("settingsDetails");
+          if (sd) sd.open = false;
 
           render();
+          setupSettingsAccess();
           setupClipboardAndDropZone();
         } catch (error) {
           showError(error);
@@ -2723,6 +3053,22 @@
       $("saveCompanyNamesBtn").addEventListener("click", () => saveCompanyNames().catch(showError));
       $("addCompanyBtn").addEventListener("click", addCompany);
       $("resetCompanyNamesBtn").addEventListener("click", () => resetCompanyNames().catch(showError));
+
+      document.addEventListener("click", (event) => {
+        const btn = event.target.closest(".password-toggle");
+        if (!btn) return;
+        const input = document.getElementById(btn.dataset.target);
+        if (!input) return;
+        const show = input.type === "password";
+        input.type = show ? "text" : "password";
+        btn.textContent = show ? "🙈" : "👁";
+        btn.setAttribute("aria-label", show ? "Ocultar senha" : "Mostrar senha");
+        btn.setAttribute("title", show ? "Ocultar senha" : "Mostrar senha");
+      });
+      const addStatusBtn = $("addStatusBtn"); if (addStatusBtn) addStatusBtn.addEventListener("click", addStatusConfig);
+      const addRemittanceBtn = $("addRemittanceBtn"); if (addRemittanceBtn) addRemittanceBtn.addEventListener("click", addRemittanceConfig);
+      const saveAppConfigBtn = $("saveAppConfigBtn"); if (saveAppConfigBtn) saveAppConfigBtn.addEventListener("click", () => saveAppConfig().catch(showError));
+      const resetAppConfigBtn = $("resetAppConfigBtn"); if (resetAppConfigBtn) resetAppConfigBtn.addEventListener("click", () => resetAppConfig().catch(showError));
 
       $("backupExportBtn").addEventListener("click", () => exportBackup().catch(showError));
       $("backupImportBtn").addEventListener("click", () => $("backupImportInput").click());
