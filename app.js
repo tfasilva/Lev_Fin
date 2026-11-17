@@ -775,7 +775,9 @@
           const hidesRemittance = row.status === "authorized" || row.status === "paid";
           const isDateHidden = hidesRemittance || !row.remittanceType || row.remittanceType === "manual" || row.remittanceType === "gestao";
           const remittanceClass = row.remittanceType ? "" : "ocr-field-missing";
-        const remittanceMethodHtml = hidesRemittance ? "" : `<div>
+
+          const remittanceFieldsHtml = hidesRemittance ? "" : `
+              <div data-remittance-method="${originalIndex}">
                 <label>Método no Banco</label>
                 <select data-import-field="remittanceType" class="${remittanceClass}">
                   <option value=""${!row.remittanceType ? " selected" : ""}>⚠️ Selecione o método</option>
@@ -784,7 +786,12 @@
                   <option value="manual"${row.remittanceType === "manual" ? " selected" : ""}>📝 Lançamento Manual</option>
                   <option value="gestao"${row.remittanceType === "gestao" ? " selected" : ""}>📝 Lançamento Gestão</option>
                 </select>
+              </div>
+              <div data-remittance-date="${originalIndex}"${isDateHidden ? ' class="hidden"' : ""}>
+                <label>Data da Remessa</label>
+                <input type="date" class="${row.remittanceDate ? "" : "ocr-field-missing"}" data-import-field="remittanceDate" value="${escapeHTML(row.remittanceDate)}">
               </div>`;
+
           return `<article class="import-row" data-import-row="${originalIndex}">
             <div class="import-row-heading">
               <span>Lançamento ${displayIndex + 1}</span>
@@ -810,27 +817,14 @@
               <div>
                 <label>Situação</label>
                 <select data-import-field="status" class="${row.status ? "" : "ocr-field-missing"}">
-                  <option value=""${!row.status ? " selected" : ""}>\u26a0\ufe0f Confirme a situa\u00e7\u00e3o</option>
+                  <option value=""${!row.status ? " selected" : ""}>⚠️ Confirme a situação</option>
                   <option value="pending"${row.status === "pending" ? " selected" : ""}>✴️ A Autorizar (Pendente)</option>
                   <option value="authorized"${row.status === "authorized" ? " selected" : ""}>✳️ Autorizado</option>
                   <option value="paid"${row.status === "paid" ? " selected" : ""}>✅ Pago</option>
                   <option value="confirmation"${row.status === "confirmation" ? " selected" : ""}>⚠️ Confirmação de Pagamento</option>
                 </select>
               </div>
-              <div>
-                <label>Método no Banco</label>
-                <select data-import-field="remittanceType" class="${row.remittanceType ? "" : "ocr-field-missing"}">
-                  <option value=""${!row.remittanceType ? " selected" : ""}>\u26a0\ufe0f Selecione o m\u00e9todo</option>
-                  <option value="standard"${row.remittanceType === "standard" ? " selected" : ""}>✉️ Remessa</option>
-                  <option value="pix"${row.remittanceType === "pix" ? " selected" : ""}>✉️ Remessa_PIX</option>
-                  <option value="manual"${row.remittanceType === "manual" ? " selected" : ""}>📝 Lançamento Manual</option>
-                  <option value="gestao"${row.remittanceType === "gestao" ? " selected" : ""}>📝 Lançamento Gestão</option>
-                </select>
-              </div>
-              <div data-remittance-date="${originalIndex}"${isDateHidden ? ' class="hidden"' : ""}>
-                <label>Data da Remessa</label>
-                <input type="date" class="${row.remittanceDate ? "" : "ocr-field-missing"}" data-import-field="remittanceDate" value="${escapeHTML(row.remittanceDate)}">
-              </div>
+              ${remittanceFieldsHtml}
             </div>
           </article>`;
         }).join("");
@@ -866,7 +860,22 @@
               const remittanceDateInput = card.querySelector('[data-import-field="remittanceDate"]');
               if (remittanceDateInput) remittanceDateInput.value = input.value;
             }
-            const needsValue = ["dueDate", "amount", "description", "status", "remittanceType"].includes(field) || (field === "remittanceDate" && !["manual", "gestao"].includes(state.importRows[index].remittanceType));
+            if (field === "status") {
+              const rowData = state.importRows[index];
+              if (rowData.status === "authorized" || rowData.status === "paid") {
+                rowData.remittanceType = "";
+                rowData.remittanceDate = "";
+              }
+              renderOcrPreview();
+              return;
+            }
+
+            const rowData = state.importRows[index];
+            const isAuthorizedOrPaid = rowData.status === "authorized" || rowData.status === "paid";
+            const needsValue = ["dueDate", "amount", "description", "status"].includes(field) ||
+              (!isAuthorizedOrPaid && field === "remittanceType") ||
+              (!isAuthorizedOrPaid && field === "remittanceDate" && !["manual", "gestao"].includes(rowData.remittanceType));
+
             input.classList.toggle("ocr-field-missing", needsValue && !input.value);
             if (field === "remittanceType") {
               const hidesDate = input.value === "manual" || input.value === "gestao" || !input.value;
@@ -969,23 +978,27 @@
           if (!["pending", "authorized", "paid", "confirmation"].includes(row.status)) {
             throw new Error(`Confirme a situação do lançamento ${index + 1}.`);
           }
-          if (!["standard", "pix", "manual", "gestao"].includes(row.remittanceType)) {
-            throw new Error(`Selecione o método bancário do lançamento ${index + 1}.`);
-          }
-          if (!["manual", "gestao"].includes(row.remittanceType) && !row.remittanceDate) {
-            throw new Error(`Informe a data da remessa do lançamento ${index + 1}.`);
+          const isAuthorizedOrPaid = row.status === "authorized" || row.status === "paid";
+          if (!isAuthorizedOrPaid) {
+            if (!["standard", "pix", "manual", "gestao"].includes(row.remittanceType)) {
+              throw new Error(`Selecione o método bancário do lançamento ${index + 1}.`);
+            }
+            if (!["manual", "gestao"].includes(row.remittanceType) && !row.remittanceDate) {
+              throw new Error(`Informe a data da remessa do lançamento ${index + 1}.`);
+            }
           }
         });
 
         company.payments.push(...state.importRows.map(({ dueDate, amount, description, status, remittanceType, remittanceDate }) => {
+          const isAuthorizedOrPaid = status === "authorized" || status === "paid";
           const isManualOrGestao = remittanceType === "manual" || remittanceType === "gestao";
           return {
             dueDate,
             amount: Number(amount),
             description: description.trim(),
             status,
-            remittanceType,
-            remittanceDate: isManualOrGestao ? "" : (remittanceDate || dueDate),
+            remittanceType: isAuthorizedOrPaid ? "" : remittanceType,
+            remittanceDate: isAuthorizedOrPaid || isManualOrGestao ? "" : (remittanceDate || dueDate),
             createdAt
           };
         }));
@@ -2354,57 +2367,108 @@
       /* Configuração de Drag & Drop e Cola Global (Ctrl+V) */
       function setupClipboardAndDropZone() {
         const pasteBox = $("printPasteBox");
-        pasteBox.addEventListener("paste", (event) => {
-          const items = (event.clipboardData || window.clipboardData)?.items;
-          if (!items) return;
-          for (const item of items) {
-            if (item.type.indexOf("image") !== -1) {
-              const file = item.getAsFile();
-              if (file) {
-                event.preventDefault();
-                notify("Imagem capturada da área de transferência! Processando OCR...");
-                processScreenshot(file).catch(showError);
+
+        const handlePasteImage = (event) => {
+          const clipboardData = event.clipboardData || window.clipboardData;
+          if (!clipboardData) return;
+
+          // 1. Tentar pegar por items (mais comum para imagens copiadas com Print Screen / Ctrl+C)
+          const items = clipboardData.items;
+          let imageFile = null;
+          if (items) {
+            for (let i = 0; i < items.length; i++) {
+              const item = items[i];
+              if (item.type && item.type.startsWith("image/")) {
+                imageFile = item.getAsFile();
+                if (imageFile) break;
               }
             }
+          }
+
+          // 2. Fallback para clipboardData.files (caso venha como arquivo colado)
+          if (!imageFile && clipboardData.files && clipboardData.files.length > 0) {
+            for (let i = 0; i < clipboardData.files.length; i++) {
+              const file = clipboardData.files[i];
+              if (file.type && file.type.startsWith("image/")) {
+                imageFile = file;
+                break;
+              }
+            }
+          }
+
+          if (imageFile) {
+            event.preventDefault();
+            event.stopPropagation();
+            // Se o modal do print não estiver aberto, abre para exibir o progresso e a conferência
+            const dialog = $("printDialog");
+            if (dialog && !dialog.open) {
+              document.documentElement.classList.add("dialog-open");
+              document.body.classList.add("dialog-open");
+              dialog.showModal();
+            }
+            notify("Imagem capturada da área de transferência! Processando OCR...");
+            processScreenshot(imageFile).catch(showError);
+          }
+        };
+
+        // Permite colar tanto dentro da caixa de print quanto globalmente na tela
+        if (pasteBox) {
+          pasteBox.addEventListener("paste", handlePasteImage);
+          pasteBox.addEventListener("click", (event) => {
+            if (event.target === pasteBox || event.target.tagName !== "BUTTON") pasteBox.focus();
+          });
+        }
+
+        // Listener global de paste no documento (se copiar um print e apertar Ctrl+V em qualquer lugar da tela)
+        window.addEventListener("paste", (event) => {
+          // Se o usuário estiver digitando em um input de texto ou textarea, não interceptar a menos que seja imagem
+          const activeTag = document.activeElement ? document.activeElement.tagName.toLowerCase() : "";
+          const isTextInput = (activeTag === "input" && !["button", "checkbox", "radio"].includes(document.activeElement.type)) || activeTag === "textarea";
+          
+          const clipboardData = event.clipboardData || window.clipboardData;
+          const hasImage = clipboardData && Array.from(clipboardData.items || []).some((item) => item.type && item.type.startsWith("image/"));
+          
+          if (hasImage) {
+            handlePasteImage(event);
           }
         });
 
         const dropZone = $("importDropZone");
-        ["dragenter", "dragover"].forEach((eventName) => {
-          dropZone.addEventListener(eventName, (e) => {
-            e.preventDefault();
-            dropZone.classList.add("dragover");
+        if (dropZone) {
+          ["dragenter", "dragover"].forEach((eventName) => {
+            dropZone.addEventListener(eventName, (e) => {
+              e.preventDefault();
+              dropZone.classList.add("dragover");
+            });
           });
-        });
-        ["dragleave", "drop"].forEach((eventName) => {
-          dropZone.addEventListener(eventName, (e) => {
+          ["dragleave", "drop"].forEach((eventName) => {
+            dropZone.addEventListener(eventName, (e) => {
+              e.preventDefault();
+              dropZone.classList.remove("dragover");
+            });
+          });
+          dropZone.addEventListener("drop", (e) => {
             e.preventDefault();
             dropZone.classList.remove("dragover");
+            const files = e.dataTransfer?.files;
+            if (files && files.length > 0) {
+              for (let i = 0; i < files.length; i++) {
+                if (files[i].type && files[i].type.startsWith("image/")) {
+                  processScreenshot(files[i]).catch(showError);
+                  break;
+                }
+              }
+            }
           });
-        });
-        dropZone.addEventListener("drop", (e) => {
-          const files = e.dataTransfer?.files;
-          if (files && files.length > 0) {
-            processScreenshot(files[0]).catch(showError);
-          }
-        });
-        pasteBox.addEventListener("click", (event) => {
-          if (event.target === pasteBox || event.target.tagName !== "BUTTON") pasteBox.focus();
-        });
+        }
       }
 
       /* Inicialização Geral da Aplicação */
       async function initialize() {
         initTheme();
-        loadStorageConfig();
         try {
           state.db = await openDatabase();
-          state.storageMode = "local";
-          state.serverConnected = false;
-          state.sessionToken = "";
-          setStorageStatus("local", "Modo Local (Navegador)");
 
-          // Inicializar conexão com o servidor MySQL (se não estiver em modo exclusivamente local)
           let savedNames = [];
           const savedSettings = await storeRequest("settings", "readonly", (store) => store.get("companyNames"));
           if (savedSettings && Array.isArray(savedSettings.value)) {
@@ -2428,7 +2492,8 @@
               if (comp.endDate === undefined) comp.endDate = "";
               if (comp.referenceTime === undefined) comp.referenceTime = "";
             });
-            $("autoSaveIndicator").textContent = "⚡ Rascunho restaurado";
+            const indicator = $("autoSaveIndicator");
+            if (indicator) indicator.textContent = "⚡ Rascunho restaurado";
           } else {
             state.draft = newDraft();
           }
@@ -2438,7 +2503,8 @@
           setupClipboardAndDropZone();
         } catch (error) {
           showError(error);
-          $("historyList").innerHTML = '<div class="empty-history">O armazenamento não pôde ser iniciado.</div>';
+          const historyList = $("historyList");
+          if (historyList) historyList.innerHTML = '<div class="empty-history">O armazenamento não pôde ser iniciado.</div>';
         }
       }
 
