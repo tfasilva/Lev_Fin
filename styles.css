@@ -340,8 +340,8 @@
     /* Cards de Estatísticas / Resumo */
     .overview {
       display: grid;
-      grid-template-columns: repeat(3, 1fr);
-      gap: 14px;
+      grid-template-columns: repeat(5, minmax(0, 1fr));
+      gap: 10px;
       margin-bottom: 20px;
     }
     .stat-card, .panel {
@@ -351,65 +351,71 @@
       box-shadow: var(--shadow);
     }
     .stat-card {
-      min-height: 104px;
-      padding: 18px 20px;
+      min-width: 0;
+      min-height: 112px;
+      padding: 14px 12px 12px;
       display: flex;
       flex-direction: column;
-      justify-content: space-between;
+      justify-content: flex-start;
       position: relative;
       overflow: hidden;
+      border-left: 5px solid transparent;
     }
-    .stat-card::before {
-      content: "";
-      position: absolute;
-      top: 0;
-      left: 0;
-      right: 0;
-      height: 3px;
-      background: transparent;
-    }
-    .stat-card.card-balance::before { background: var(--blue); }
-    .stat-card.card-pending::before { background: var(--amber); }
-    .stat-card.card-forecast::before { background: var(--green); }
+    .stat-card::before { content: none; }
+    .stat-card.tone-balance { background: #eaf3ff; border-color: #bfd4ff; border-left-color: #2563eb; }
+    .stat-card.tone-balance .stat-label, .stat-card.tone-balance .stat-value, .stat-card.tone-balance .stat-breakdown-row strong { color: #1e40af; }
+    .stat-card.tone-general { background: #f3f4f6; border-color: #d1d5db; border-left-color: #4b5563; }
+    .stat-card.tone-general .stat-label, .stat-card.tone-general .stat-value, .stat-card.tone-general .stat-breakdown-row strong { color: #374151; }
+    .stat-card.tone-open { background: #fff7e6; border-color: #f2d39b; border-left-color: #d97706; }
+    .stat-card.tone-open .stat-label, .stat-card.tone-open .stat-value, .stat-card.tone-open .stat-breakdown-row strong { color: #92400e; }
+    .stat-card.tone-paid { background: #eafaf0; border-color: #bfe3c9; border-left-color: #16a34a; }
+    .stat-card.tone-paid .stat-label, .stat-card.tone-paid .stat-value, .stat-card.tone-paid .stat-breakdown-row strong { color: #166534; }
+    .stat-card.tone-final { background: #eef7f2; border-color: #bddfcd; border-left-color: #15803d; }
+    .stat-card.tone-final .stat-label, .stat-card.tone-final .stat-value, .stat-card.tone-final .stat-breakdown-row strong { color: #166534; }
+    .stat-card.tone-final.is-negative { background: #fef2f2; border-color: #f3c2c2; border-left-color: #dc2626; }
+    .stat-card.tone-final.is-negative .stat-label, .stat-card.tone-final.is-negative .stat-value, .stat-card.tone-final.is-negative .stat-breakdown-row strong { color: #991b1b; }
+    .stat-card.tone-final.is-positive .stat-label, .stat-card.tone-final.is-positive .stat-value, .stat-card.tone-final.is-positive .stat-breakdown-row strong { color: #166534; }
     .stat-label {
       color: var(--muted);
-      font-size: 12px;
-      font-weight: 600;
+      font-size: 11px;
+      font-weight: 700;
       text-transform: uppercase;
       letter-spacing: .04em;
     }
     .stat-value {
-      margin-top: 8px;
-      font-size: 24px;
+      margin-top: 4px;
+      font-size: 18px;
       font-weight: 800;
       letter-spacing: -.03em;
       font-variant-numeric: tabular-nums;
     }
     .stat-breakdown {
       display: grid;
-      gap: 3px;
-      margin-top: 10px;
-      font-size: 11px;
-      line-height: 1.25;
+      gap: 2px;
+      margin-top: 8px;
+      font-size: 10.5px;
+      line-height: 1.2;
       font-variant-numeric: tabular-nums;
     }
     .stat-breakdown-row {
       display: flex;
       align-items: baseline;
       justify-content: space-between;
-      gap: 8px;
-      color: var(--ink-secondary);
+      gap: 6px;
+      color: var(--ink);
     }
     .stat-breakdown-row span {
       min-width: 0;
       overflow: hidden;
       text-overflow: ellipsis;
       white-space: nowrap;
+      color: #111827;
+      font-weight: 600;
     }
     .stat-breakdown-row strong {
       flex: 0 0 auto;
       color: var(--ink);
-      font-weight: 700;
+      font-weight: 800;
     }
     .stat-note {
       margin-top: 4px;
@@ -1370,7 +1376,6 @@
 
     /* Responsividade */
     @media (max-width: 960px) {
-      .overview { grid-template-columns: 1fr; }
       .settings-grid { grid-template-columns: repeat(2, 1fr); }
       .field-grid { grid-template-columns: 1fr 1fr; }
     }

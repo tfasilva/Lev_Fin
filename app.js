@@ -1303,30 +1303,41 @@
 
       function renderOverview() {
         const companies = state.draft.companies;
-        const balance = companies.reduce((sum, company) => sum + (Number(company.balance) || 0), 0);
-        const pending = companies.reduce((sum, company) => sum + paymentTotals(company).pending, 0);
-        // Lançamentos pagos já foram debitados do saldo; considera apenas pendentes + autorizados
-        const forecast = companies.reduce((sum, company) => {
-          const t = paymentTotals(company);
-          return sum + (Number(company.balance) || 0) - (t.pending + t.authorized);
-        }, 0);
-        const breakdown = (getValue) => companies.map((company, index) => `
+        const metrics = companies.map((company) => {
+          const totals = paymentTotals(company);
+          const balance = Number(company.balance) || 0;
+          const payable = totals.payable || 0;
+          const paid = totals.paid || 0;
+          const open = Math.max(0, payable - paid);
+          const final = balance - open;
+          return { company, balance, payable, paid, open, final };
+        });
+        const sum = (key) => metrics.reduce((acc, item) => acc + item[key], 0);
+        const balance = sum("balance");
+        const payable = sum("payable");
+        const paid = sum("paid");
+        const open = sum("open");
+        const final = sum("final");
+
+        const breakdown = (key) => metrics.map((item, index) => `
           <div class="stat-breakdown-row">
-            <span title="${escapeHTML(company.name || `Empresa ${index + 1}`)}">${escapeHTML(company.name || `Empresa ${index + 1}`)}</span>
-            <strong>${formatCurrencyBR(getValue(company))}</strong>
+            <span title="${escapeHTML(item.company.name || `Empresa ${index + 1}`)}">${escapeHTML(item.company.name || `Empresa ${index + 1}`)}</span>
+            <strong>${formatCurrencyBR(item[key])}</strong>
           </div>`).join("");
 
         $("overallBalance").textContent = formatCurrencyBR(balance);
-        $("overallPending").textContent = formatCurrencyBR(pending);
-        $("overallForecast").textContent = formatCurrencyBR(forecast);
-        $("overallForecast").classList.toggle("money-negative", forecast < 0);
-        $("balanceByCompany").innerHTML = breakdown((company) => Number(company.balance) || 0);
-        $("pendingByCompany").innerHTML = breakdown((company) => paymentTotals(company).pending);
-        $("forecastByCompany").innerHTML = breakdown((company) => {
-          const totals = paymentTotals(company);
-          // Lançamentos pagos já foram debitados do saldo; considera apenas pendentes + autorizados
-          return (Number(company.balance) || 0) - (totals.pending + totals.authorized);
-        });
+        $("overallGeneral").textContent = formatCurrencyBR(payable);
+        $("overallOpen").textContent = formatCurrencyBR(open);
+        $("overallPaid").textContent = formatCurrencyBR(paid);
+        $("overallFinal").textContent = formatCurrencyBR(final);
+        $("overallFinalCard").classList.toggle("is-negative", final < 0);
+        $("overallFinalCard").classList.toggle("is-positive", final >= 0);
+
+        $("balanceByCompany").innerHTML = breakdown("balance");
+        $("generalByCompany").innerHTML = breakdown("payable");
+        $("openByCompany").innerHTML = breakdown("open");
+        $("paidByCompany").innerHTML = breakdown("paid");
+        $("finalByCompany").innerHTML = breakdown("final");
       }
 
       /* Histórico de Levantamentos */
@@ -1526,12 +1537,15 @@
             </div>
           </header>
 
-          <section class="pdf-summary-cards">
-            <div class="pdf-summary-card"><span class="pdf-summary-label">Saldo Atual (consolidado)</span><strong class="pdf-summary-value">${formatCurrencyBR(consolidated.balance)}</strong></div>
-            <div class="pdf-summary-card"><span class="pdf-summary-label">Total Geral</span><strong class="pdf-summary-value">${formatCurrencyBR(consolidated.payable)}</strong></div>
-            <div class="pdf-summary-card"><span class="pdf-summary-label">Total em Aberto</span><strong class="pdf-summary-value">${formatCurrencyBR(consolidated.open)}</strong></div>
-            <div class="pdf-summary-card"><span class="pdf-summary-label">Total Pago</span><strong class="pdf-summary-value">${formatCurrencyBR(consolidated.paid)}</strong></div>
-            <div class="pdf-summary-card highlight ${moneyClass(consolidated.final)}"><span class="pdf-summary-label">Saldo Final (consolidado)</span><strong class="pdf-summary-value">${formatCurrencyBR(consolidated.final)}</strong></div>
+          <section class="pdf-section-block">
+            <h3 class="pdf-section-title">Consolidado</h3>
+            <div class="pdf-kpi-row">
+              <div class="pdf-kpi-card tone-balance"><span class="pdf-kpi-label">Saldo Atual</span><strong class="pdf-kpi-value">${formatCurrencyBR(consolidated.balance)}</strong></div>
+              <div class="pdf-kpi-card tone-general"><span class="pdf-kpi-label">Total Geral</span><strong class="pdf-kpi-value">${formatCurrencyBR(consolidated.payable)}</strong></div>
+              <div class="pdf-kpi-card tone-open"><span class="pdf-kpi-label">Total em Aberto</span><strong class="pdf-kpi-value">${formatCurrencyBR(consolidated.open)}</strong></div>
+              <div class="pdf-kpi-card tone-paid"><span class="pdf-kpi-label">Total Pago</span><strong class="pdf-kpi-value">${formatCurrencyBR(consolidated.paid)}</strong></div>
+              <div class="pdf-kpi-card tone-final ${moneyClass(consolidated.final)}"><span class="pdf-kpi-label">Saldo Final</span><strong class="pdf-kpi-value">${formatCurrencyBR(consolidated.final)}</strong></div>
+            </div>
           </section>
 
           <section class="pdf-company-list">
@@ -1548,12 +1562,12 @@
                     <p class="pdf-company-period">Período: ${escapeHTML(dateBR(companyPeriod.startDate))} a ${escapeHTML(dateBR(companyPeriod.endDate))}${companyPeriod.referenceTime ? ` · ${escapeHTML(companyPeriod.referenceTime)}` : ""}</p>
                   </div>
                 </div>
-                <div class="pdf-company-summary-grid">
-                  <div class="pdf-kpi"><span>Saldo Atual</span><strong>${formatCurrencyBR(balance)}</strong></div>
-                  <div class="pdf-kpi"><span>Total Geral</span><strong>${formatCurrencyBR(totals.payable || 0)}</strong></div>
-                  <div class="pdf-kpi"><span>Total em Aberto</span><strong>${formatCurrencyBR(open)}</strong></div>
-                  <div class="pdf-kpi"><span>Total Pago</span><strong>${formatCurrencyBR(totals.paid || 0)}</strong></div>
-                  <div class="pdf-kpi highlight ${moneyClass(finalBalance)}"><span>Saldo Final</span><strong>${formatCurrencyBR(finalBalance)}</strong></div>
+                <div class="pdf-kpi-row pdf-kpi-row-company">
+                  <div class="pdf-kpi-card tone-balance"><span class="pdf-kpi-label">Saldo Atual</span><strong class="pdf-kpi-value">${formatCurrencyBR(balance)}</strong></div>
+                  <div class="pdf-kpi-card tone-general"><span class="pdf-kpi-label">Total Geral</span><strong class="pdf-kpi-value">${formatCurrencyBR(totals.payable || 0)}</strong></div>
+                  <div class="pdf-kpi-card tone-open"><span class="pdf-kpi-label">Total em Aberto</span><strong class="pdf-kpi-value">${formatCurrencyBR(open)}</strong></div>
+                  <div class="pdf-kpi-card tone-paid"><span class="pdf-kpi-label">Total Pago</span><strong class="pdf-kpi-value">${formatCurrencyBR(totals.paid || 0)}</strong></div>
+                  <div class="pdf-kpi-card tone-final ${moneyClass(finalBalance)}"><span class="pdf-kpi-label">Saldo Final</span><strong class="pdf-kpi-value">${formatCurrencyBR(finalBalance)}</strong></div>
                 </div>
                 <div class="pdf-dates">${datesForCompany(company) || '<div class="pdf-empty">Sem lançamentos no período.</div>'}</div>
               </article>`;
@@ -1575,26 +1589,36 @@
           body { margin: 0; color: #10231d; background: #fff; font-family: "Segoe UI", Arial, sans-serif; font-size: 11px; line-height: 1.4; }
           h1 { margin: 0; font-size: 24px; color: #0f2a22; letter-spacing: -.02em; }
           h2 { margin: 0; font-size: 17px; color: #12362b; }
+          h3 { margin: 0; }
           p { margin: 0; }
           .pdf-report-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; padding-bottom: 12px; border-bottom: 2px solid #1d6a4f; margin-bottom: 14px; }
           .pdf-report-subtitle { margin-top: 4px; color: #3f5a50; font-size: 12px; }
           .pdf-report-meta { text-align: right; color: #5b7268; font-size: 10.5px; display: flex; flex-direction: column; gap: 2px; }
-          .pdf-summary-cards { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; margin-bottom: 18px; }
-          .pdf-summary-card { border: 1px solid #d5e3dc; border-radius: 8px; padding: 10px 12px; background: #f7fbf9; }
-          .pdf-summary-card.highlight { background: #eef7f2; border-color: #b9d8c8; }
-          .pdf-summary-label { display: block; font-size: 10px; color: #4f685d; text-transform: uppercase; letter-spacing: .3px; margin-bottom: 4px; }
-          .pdf-summary-value { font-size: 15px; color: #10231d; }
-          .pdf-positive { color: #0f6b3d; }
-          .pdf-negative { color: #b42318; }
+          .pdf-section-block { margin-bottom: 16px; }
+          .pdf-section-title { font-size: 12px; text-transform: uppercase; letter-spacing: .4px; color: #35584a; margin: 0 0 8px; }
+          .pdf-kpi-row { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; }
+          .pdf-kpi-row-company { margin-bottom: 10px; }
+          .pdf-kpi-card { border: 1px solid #d6e2dc; border-radius: 10px; padding: 10px 12px; background: #f7faf8; border-left: 5px solid #9bb8ab; }
+          .pdf-kpi-label { display: block; font-size: 10px; color: #4f685d; text-transform: uppercase; letter-spacing: .3px; margin-bottom: 4px; font-weight: 700; }
+          .pdf-kpi-value { font-size: 15px; color: #10231d; font-weight: 800; }
+          .pdf-kpi-card.tone-balance { background: #eaf3ff; border-color: #bfd4ff; border-left-color: #2563eb; }
+          .pdf-kpi-card.tone-balance .pdf-kpi-label, .pdf-kpi-card.tone-balance .pdf-kpi-value { color: #1e40af; }
+          .pdf-kpi-card.tone-general { background: #f3f4f6; border-color: #d1d5db; border-left-color: #4b5563; }
+          .pdf-kpi-card.tone-general .pdf-kpi-label, .pdf-kpi-card.tone-general .pdf-kpi-value { color: #374151; }
+          .pdf-kpi-card.tone-open { background: #fff7e6; border-color: #f2d39b; border-left-color: #d97706; }
+          .pdf-kpi-card.tone-open .pdf-kpi-label, .pdf-kpi-card.tone-open .pdf-kpi-value { color: #92400e; }
+          .pdf-kpi-card.tone-paid { background: #eafaf0; border-color: #bfe3c9; border-left-color: #16a34a; }
+          .pdf-kpi-card.tone-paid .pdf-kpi-label, .pdf-kpi-card.tone-paid .pdf-kpi-value { color: #166534; }
+          .pdf-kpi-card.tone-final { background: #eef7f2; border-color: #bddfcd; border-left-color: #15803d; }
+          .pdf-kpi-card.tone-final.pdf-negative { background: #fef2f2; border-color: #f3c2c2; border-left-color: #dc2626; }
+          .pdf-kpi-card.tone-final.pdf-negative .pdf-kpi-label, .pdf-kpi-card.tone-final.pdf-negative .pdf-kpi-value { color: #991b1b; }
+          .pdf-kpi-card.tone-final.pdf-positive .pdf-kpi-label, .pdf-kpi-card.tone-final.pdf-positive .pdf-kpi-value { color: #166534; }
+          .pdf-positive { color: #166534; }
+          .pdf-negative { color: #991b1b; }
           .pdf-company-section { margin: 0 0 18px; break-inside: avoid-page; page-break-inside: avoid; }
           .pdf-company-header { display: flex; justify-content: space-between; align-items: flex-end; gap: 12px; margin-bottom: 8px; padding: 8px 10px; background: #12362b; color: #fff; border-radius: 8px 8px 0 0; }
           .pdf-company-header h2 { color: #fff; }
           .pdf-company-period { margin-top: 2px; font-size: 11px; color: #d8ebe3; }
-          .pdf-company-summary-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; margin-bottom: 10px; }
-          .pdf-kpi { border: 1px solid #d9e6df; border-radius: 6px; padding: 8px 10px; background: #fbfdfc; }
-          .pdf-kpi span { display: block; font-size: 10px; color: #567066; margin-bottom: 3px; }
-          .pdf-kpi strong { font-size: 13px; }
-          .pdf-kpi.highlight { background: #f1f8f4; }
           .pdf-date-group { margin: 10px 0; border: 1px solid #dfe9e3; border-radius: 6px; overflow: hidden; break-inside: avoid; }
           .pdf-date-heading { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 7px 10px; background: #edf5f0; color: #153d31; font-weight: 700; border-bottom: 1px solid #dfe9e3; }
           .pdf-date-meta { font-weight: 600; font-size: 10.5px; color: #35584a; }

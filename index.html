@@ -40,23 +40,30 @@
 
     <!-- Stat Cards Overview -->
     <section class="overview" aria-label="Resumo do levantamento atual">
-      <article class="stat-card card-balance">
-        <div class="stat-label">Saldo Consolidado</div>
+      <article class="stat-card tone-balance" id="overallBalanceCard">
+        <div class="stat-label">Saldo Atual</div>
         <div class="stat-value" id="overallBalance">R$ 0,00</div>
         <div class="stat-breakdown" id="balanceByCompany"></div>
-        <div class="stat-note" id="balanceNote">Soma dos saldos atuais informados</div>
       </article>
-      <article class="stat-card card-pending">
-        <div class="stat-label">Total a Autorizar</div>
-        <div class="stat-value" id="overallPending">R$ 0,00</div>
-        <div class="stat-breakdown" id="pendingByCompany"></div>
-        <div class="stat-note">Pagamentos em situação pendente</div>
+      <article class="stat-card tone-general" id="overallGeneralCard">
+        <div class="stat-label">Total Geral</div>
+        <div class="stat-value" id="overallGeneral">R$ 0,00</div>
+        <div class="stat-breakdown" id="generalByCompany"></div>
       </article>
-      <article class="stat-card card-forecast">
-        <div class="stat-label">Previsão de Saldo Final</div>
-        <div class="stat-value" id="overallForecast">R$ 0,00</div>
-        <div class="stat-breakdown" id="forecastByCompany"></div>
-        <div class="stat-note">Saldo consolidado menos saídas a autorizar</div>
+      <article class="stat-card tone-open" id="overallOpenCard">
+        <div class="stat-label">Total em Aberto</div>
+        <div class="stat-value" id="overallOpen">R$ 0,00</div>
+        <div class="stat-breakdown" id="openByCompany"></div>
+      </article>
+      <article class="stat-card tone-paid" id="overallPaidCard">
+        <div class="stat-label">Total Pago</div>
+        <div class="stat-value" id="overallPaid">R$ 0,00</div>
+        <div class="stat-breakdown" id="paidByCompany"></div>
+      </article>
+      <article class="stat-card tone-final" id="overallFinalCard">
+        <div class="stat-label">Saldo Final</div>
+        <div class="stat-value" id="overallFinal">R$ 0,00</div>
+        <div class="stat-breakdown" id="finalByCompany"></div>
       </article>
     </section>
 
