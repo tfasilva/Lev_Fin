@@ -1211,7 +1211,7 @@
                 </select>
               </td>
               <td class="${remClass}" data-label="Método / Remessa">
-                ${hidesRemittance ? `<span class="remittance-not-needed" style="color: var(--muted); font-size: 12px;">— ${payment.status === "paid" ? "Pago" : "Autorizado"} (não se aplica)</span>` : `
+                ${hidesRemittance ? `<span class="remittance-not-needed remittance-status-${payment.status}" style="font-size: 12px;">${payment.status === "paid" ? "🟢 Pago" : payment.status === "authorized" ? "🔵 Autorizado" : "🟡 A Autorizar"} (não se aplica)</span>` : `
                 <select aria-label="Método bancário" data-field="remittanceType">
                   <option value="standard"${remType === "standard" ? " selected" : ""}>✉️ Remessa</option>
                   <option value="pix"${remType === "pix" ? " selected" : ""}>✉️ Remessa_PIX</option>
@@ -1232,10 +1232,10 @@
               <td colspan="6">
                 <div class="payment-date-total-content">
                   <span>Total para ${escapeHTML(dateLabel)}:</span>
-                  <span class="status-subtotal pending">A autorizar: ${formatCurrencyBR((dateByStatus.get(payment.dueDate || "") || {}).pending || 0)}</span>
-                  <span class="status-subtotal authorized">Autorizado: ${formatCurrencyBR((dateByStatus.get(payment.dueDate || "") || {}).authorized || 0)}</span>
-                  <span class="status-subtotal paid">Pago: ${formatCurrencyBR((dateByStatus.get(payment.dueDate || "") || {}).paid || 0)}</span>
-                  <span class="status-subtotal confirmation">Confirmação de pagamento: ${formatCurrencyBR((dateByStatus.get(payment.dueDate || "") || {}).confirmation || 0)}</span>
+                  <span class="status-subtotal pending clickable-filter" data-status-filter="pending">A autorizar: ${formatCurrencyBR((dateByStatus.get(payment.dueDate || "") || {}).pending || 0)}</span>
+                  <span class="status-subtotal authorized clickable-filter" data-status-filter="authorized">Autorizado: ${formatCurrencyBR((dateByStatus.get(payment.dueDate || "") || {}).authorized || 0)}</span>
+                  <span class="status-subtotal paid clickable-filter" data-status-filter="paid">Pago: ${formatCurrencyBR((dateByStatus.get(payment.dueDate || "") || {}).paid || 0)}</span>
+                  <span class="status-subtotal confirmation clickable-filter" data-status-filter="confirmation">Confirmação de pagamento: ${formatCurrencyBR((dateByStatus.get(payment.dueDate || "") || {}).confirmation || 0)}</span>
                   <span class="total-geral">Total Geral: <strong>${formatCurrencyBR(dateTotals.get(payment.dueDate || "") || 0)}</strong></span>
                 </div>
               </td>
@@ -1322,8 +1322,9 @@
         return `
           <span>Saldo Inicial: <strong>${formatCurrencyBR(balance)}</strong></span>
           <span>A Pagar: <strong>${formatCurrencyBR(totals.payable)}</strong></span>
-          <span>Autorizado/Pago: <strong>${formatCurrencyBR(totals.authorizedOrPaid)}</strong></span>
-          <span class="pending">A Autorizar: <strong>${formatCurrencyBR(totals.pending)}</strong></span>
+          <span class="status-chip authorized">Autorizado: <strong>${formatCurrencyBR(totals.authorized)}</strong></span>
+          <span class="status-chip paid">Pago: <strong>${formatCurrencyBR(totals.paid)}</strong></span>
+          <span class="status-chip pending">A Autorizar: <strong>${formatCurrencyBR(totals.pending)}</strong></span>
           <span class="forecast">Previsão Final: <strong class="${forecast < 0 ? "money-negative" : ""}">${formatCurrencyBR(forecast)}</strong></span>`;
       }
 
@@ -1840,8 +1841,11 @@
             }
 
             const dayPayable = paymentsForDate.reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
-            const dayAuthorizedOrPaid = paymentsForDate
-              .filter((p) => p.status === "paid" || p.status === "authorized")
+            const dayAuthorized = paymentsForDate
+              .filter((p) => p.status === "authorized")
+              .reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
+            const dayPaid = paymentsForDate
+              .filter((p) => p.status === "paid")
               .reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
             const dayPending = paymentsForDate
               .filter((p) => p.status === "pending" || p.status === "confirmation")
@@ -1851,7 +1855,8 @@
 
             lines.push(`➡️ *PARA ${dateBR(date)}:*${hasConfirmation ? " _(CONFIRMAÇÃO DE PAGAMENTO)_" : ""}`);
             lines.push(`💵 *Total a pagar:* *${formatCurrencyBR(dayPayable)}*`);
-            lines.push(`✳️ *Autorizado/Pago:* *${formatCurrencyBR(dayAuthorizedOrPaid)}*`);
+            lines.push(`✳️ *Autorizado:* *${formatCurrencyBR(dayAuthorized)}*`);
+            lines.push(`💚 *Pago:* *${formatCurrencyBR(dayPaid)}*`);
             if (dayPending > 0) lines.push(`✴️ *A autorizar:* *${formatCurrencyBR(dayPending)}*`);
 
             const groups = {};
@@ -1964,8 +1969,11 @@
                 lines.push("------------------------------------------------");
               } else {
                 const dayPayable = paymentsForDate.reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
-                const dayAuthorizedOrPaid = paymentsForDate
-                  .filter((p) => p.status === "paid" || p.status === "authorized")
+                const dayAuthorized = paymentsForDate
+                  .filter((p) => p.status === "authorized")
+                  .reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
+                const dayPaid = paymentsForDate
+                  .filter((p) => p.status === "paid")
                   .reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
                 const dayPending = paymentsForDate
                   .filter((p) => p.status === "pending" || p.status === "confirmation")
@@ -1975,7 +1983,8 @@
                 const dateTag = hasConfirmation ? " (CONFIRMAÇÃO DE PAGAMENTO)" : "";
                 lines.push(`➡️ *PARA ${dateBR(date)}:*${dateTag}`);
                 lines.push(`💵 *Total A Pagar:* ${formatCurrencyBR(dayPayable)}`);
-                lines.push(`✳️ *Total Autorizado/Pago:* ${formatCurrencyBR(dayAuthorizedOrPaid)}`);
+                lines.push(`✳️ *Total Autorizado:* ${formatCurrencyBR(dayAuthorized)}`);
+                lines.push(`💚 *Total Pago:* ${formatCurrencyBR(dayPaid)}`);
                 lines.push(`✴️ *Total a Autorizar:* ${formatCurrencyBR(dayPending)}`);
 
                 // Agrupamento inteligente por Método / Remessa
@@ -2541,6 +2550,17 @@
       });
       $("paymentStatusFilter").addEventListener("change", (e) => {
         state.paymentStatusFilter = e.target.value;
+        renderPayments();
+      });
+
+      /* Filtro interativo pelos subtotais de status (linha de total do dia) */
+      $("paymentRows").addEventListener("click", (e) => {
+        const chip = e.target.closest(".clickable-filter");
+        if (!chip) return;
+        const status = chip.dataset.statusFilter;
+        if (!status) return;
+        state.paymentStatusFilter = status;
+        $("paymentStatusFilter").value = status;
         renderPayments();
       });
       $("paymentSort").addEventListener("change", (e) => {
