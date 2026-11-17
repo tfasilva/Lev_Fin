@@ -2972,6 +2972,22 @@
         $("paymentStatusFilter").value = status;
         renderPayments();
       });
+
+      $("paymentRows").addEventListener("focusin", (e) => {
+        if (e.target.matches('td:nth-child(4) select, .remittance-cell select')) {
+          e.target.classList.add("is-open");
+        }
+      });
+      $("paymentRows").addEventListener("focusout", (e) => {
+        if (e.target.matches('td:nth-child(4) select, .remittance-cell select')) {
+          e.target.classList.remove("is-open");
+        }
+      });
+      $("paymentRows").addEventListener("change", (e) => {
+        if (e.target.matches('td:nth-child(4) select, .remittance-cell select')) {
+          e.target.classList.remove("is-open");
+        }
+      });
       $("paymentSort").addEventListener("change", (e) => {
         state.paymentSort = e.target.value;
         renderPayments();

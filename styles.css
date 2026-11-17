@@ -676,6 +676,7 @@
       letter-spacing: .04em;
       text-transform: uppercase;
       white-space: nowrap;
+      text-align: center;
     }
     td {
       padding: 8px 5px;
@@ -794,13 +795,41 @@
     #paymentRows td:nth-child(2) input[type="text"] {
       max-width: 104px;
     }
+    #paymentRows td:nth-child(4),
+    #paymentRows th:nth-child(4) {
+      text-align: center;
+    }
+    #paymentRows td:nth-child(4) select {
+      text-align: center;
+      text-align-last: center;
+    }
+    #paymentRows td:nth-child(4) select.is-open {
+      text-align: left;
+      text-align-last: left;
+    }
+    #paymentRows td:nth-child(5),
+    #paymentRows th:nth-child(5) {
+      text-align: center;
+    }
     .remittance-cell {
       display: grid;
       grid-template-columns: 1fr;
       gap: 4px;
+      justify-items: center;
+      text-align: center;
     }
     .remittance-cell.has-date {
       grid-template-columns: minmax(0, 1.35fr) minmax(88px, .8fr);
+      justify-items: stretch;
+    }
+    .remittance-cell select,
+    .remittance-cell input[type="date"] {
+      text-align: center;
+      text-align-last: center;
+    }
+    .remittance-cell select.is-open {
+      text-align: left;
+      text-align-last: left;
     }
     .remittance-cell select {
       min-width: 0;
@@ -1550,8 +1579,8 @@
         margin: 0 0 4px 2px;
         color: var(--muted);
         font-size: 10.5px;
-        font-weight: 700;
-        content: attr(data-label);
+        font-weight: 600;
+        text-align: left;
       }
       #paymentRows td.description-cell, #paymentRows td.remittance-cell { grid-column: 1 / -1; }
       #paymentRows td:last-child {
@@ -1646,9 +1675,12 @@
 
   /* Caixa "não se aplica" no Método/Remessa, com cor por status */
   .remittance-not-needed {
-    display: inline-flex;
+    display: flex;
     align-items: center;
+    justify-content: center;
     gap: 6px;
+    width: 100%;
+    text-align: center;
     font-size: 11.5px;
     font-weight: 600;
     border-radius: 4px;
