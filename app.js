@@ -1822,6 +1822,7 @@
         lines.push(`${index + 1}️⃣ *${companyName}*`);
         lines.push(`💵 ${balanceLabel}: *${balanceFormatted}*`);
         lines.push(`✴️ Soma total a Pagar: *${totalPayable}*`);
+        lines.push(`💰 Soma total Pago: *${formatCurrencyBR(totals.paid)}*`);
         lines.push(`✅ Saldo Final Bradesco: *${formatCurrencyBR(finalBalance)}*`);
         lines.push(WHATSAPP_SEPARATOR);
         lines.push("");
