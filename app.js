@@ -1834,9 +1834,10 @@
         lines.push(`${index + 1}️⃣ *${companyName}*`);
         lines.push(`💵 ${balanceLabel}: *${balanceFormatted}*`);
         lines.push(`✴️ Total Geral: *${totalPayable}*`);
-        // Total em Aberto = Total Geral - Total Pago (considera pending + authorized + confirmation)
-        const totalAberto = totalPayable - (totals.paid || 0);
-        lines.push(`💰 Total em Aberto: *${formatCurrencyBR(totalAberto)}*`);
+        // Total em Aberto = Total Geral - Total Pago
+        // Considera apenas status "paid" para o total pago
+        // O restante (authorized + pending + confirmation) soma ao total em aberto
+        lines.push(`💰 Total em Aberto: *${formatCurrencyBR(totalPayable - (totals.paid || 0))}*`);
         lines.push(`✅ Total Pago: *${formatCurrencyBR(totals.paid)}*`);
         const balanceSign = finalBalance >= 0 ? "🟢" : "🔴";
         // Observação de pagamento com base no saldo
