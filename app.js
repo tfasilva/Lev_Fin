@@ -1834,10 +1834,76 @@
         lines.push(`${index + 1}️⃣ *${companyName}*`);
         lines.push(`💵 ${balanceLabel}: *${balanceFormatted}*`);
         lines.push(`✴️ Total Geral: *${totalPayable}*`);
-        lines.push(`💰 Total em Aberto: *${totalPayable}*`);
+        // Total em Aberto = Total Geral - Total Pago (considera pending + authorized + confirmation)
+        const totalAberto = totalPayable - (totals.paid || 0);
+        lines.push(`💰 Total em Aberto: *${formatCurrencyBR(totalAberto)}*`);
         lines.push(`✅ Total Pago: *${formatCurrencyBR(totals.paid)}*`);
         const balanceSign = finalBalance >= 0 ? "🟢" : "🔴";
-        lines.push(`${balanceSign} Saldo Final Bradesco: *${formatCurrencyBR(finalBalance)}*`);
+        // Observação de pagamento com base no saldo
+        let observacao = "";
+        const payments = company.payments || [];
+        // Ordenar pagamentos por data de vencimento (mais antigos primeiro)
+        const pagamentosOrdenados = payments
+          .filter(p => p.dueDate)
+          .sort((a, b) => new Date(a.dueDate) - new Date(b.dueDate));
+        
+        let saldoRestante = Number(company.balance) || 0;
+        let totalPagoComSaldo = 0;
+        let dataFimSaldo = null;
+        let lancamentoFimSaldo = null;
+        
+        for (const pagamento of pagamentosOrdenados) {
+          const valor = Number(pagamento.amount) || 0;
+          if (saldoRestante >= valor) {
+            saldoRestante -= valor;
+            totalPagoComSaldo += valor;
+            dataFimSaldo = pagamento.dueDate;
+            lancamentoFimSaldo = pagamento;
+          } else {
+            // Saldo insuficiente para este lançamento
+            break;
+          }
+        }
+        
+        // Verificar se há lançamentos após o que o saldo consegue pagar
+        const lancamentosRestantes = pagamentosOrdenados.filter(p => {
+          const jaConsiderado = pagamentosOrdenados.indexOf(p) < pagamentosOrdenados.indexOf(lancamentoFimSaldo || {dueDate: ''});
+          return jaConsiderado;
+        });
+        
+        if (finalBalance < 0) {
+          if (lancamentoFimSaldo) {
+            observacao = `⚠️ **Atenção: Saldo negativo** (R$ ${formatCurrencyBR(Math.abs(finalBalance))}). `;
+            if (dataFimSaldo) {
+              observacao += `Com o saldo atual, é possível pagar até R$ ${formatCurrencyBR(totalPagoComSaldo)} em lançamentos vencidos até ${dateBR(dataFimSaldo)}. `;
+            }
+            if (lancamentosRestantes.length > 0) {
+              const primeiroRestante = lancamentosRestantes[0];
+              observacao += `A partir de ${dateBR(primeiroRestante.dueDate)} os lançamentos ficarão `;
+              observacao += `pendentes (saldo insuficiente). `;
+            }
+            if (totalPagoComSaldo > 0) {
+              observacao += `Com R$ ${formatCurrencyBR(totalPagoComSaldo)} do saldo atual, é possível pagar ${lancamentoFimSaldo ? `até o lançamento de ${dateBR(lancamentoFimSaldo.dueDate)}` : 'alguns lançamentos'}. `;
+            }
+          } else {
+            observacao = `⚠️ **Atenção: Saldo negativo** (R$ ${formatCurrencyBR(Math.abs(finalBalance))}). Saldo insuficiente para qualquer lançamento.`;
+          }
+          observacao += `É recomendado regularizar o situação antes de novos vencimentos.`;
+        } else if (totalPagoComSaldo > 0 && dataFimSaldo && lancamentosRestantes && lancamentosRestantes.length > 0) {
+          // Saldo suficiente para alguns, mas não todos
+          observacao = `✅ **Parcial**: Com o saldo atual é possível pagar ${formatCurrencyBR(totalPagoComSaldo)} em lançamentos. `;
+          if (dataFimSaldo) {
+            observacao += `Último lançamento pago até ${dateBR(dataFimSaldo)}. `;
+          }
+          if (lancamentosRestantes[0]) {
+            observacao += `A partir de ${dateBR(lancamentosRestantes[0].dueDate)} os lançamentos ficarão pendentes.`;
+          }
+        } else {
+          // Saldo suficiente para tudo
+          observacao = `✅ **Saldo Suficiente**: Com o saldo atual (R$ ${formatCurrencyBR(Number(company.balance) || 0)}), é possível quitar todos os ${payments.length} lançamento(ês) do levantamento.`;
+        }
+        
+        lines.push(observacao);
         lines.push(WHATSAPP_SEPARATOR);
         lines.push("");
 
