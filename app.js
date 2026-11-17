@@ -1168,9 +1168,19 @@
         });
 
         const dateTotals = new Map();
+        const dateByStatus = new Map();
         paymentsToRender.forEach((payment) => {
           const date = payment.dueDate || "";
-          dateTotals.set(date, (dateTotals.get(date) || 0) + (Number(payment.amount) || 0));
+          const amount = Number(payment.amount) || 0;
+          dateTotals.set(date, (dateTotals.get(date) || 0) + amount);
+          if (!dateByStatus.has(date)) {
+            dateByStatus.set(date, { pending: 0, authorized: 0, paid: 0, confirmation: 0 });
+          }
+          const statusMap = dateByStatus.get(date);
+          if (payment.status === "pending") statusMap.pending += amount;
+          else if (payment.status === "authorized") statusMap.authorized += amount;
+          else if (payment.status === "paid") statusMap.paid += amount;
+          else if (payment.status === "confirmation") statusMap.confirmation += amount;
         });
 
         $("paymentRows").innerHTML = paymentsToRender.map((payment, index) => {
@@ -1221,8 +1231,12 @@
             <tr class="payment-date-total">
               <td colspan="6">
                 <div class="payment-date-total-content">
-                  <span>Total de ${escapeHTML(dateLabel)}</span>
-                  <strong>${formatCurrencyBR(dateTotals.get(payment.dueDate || "") || 0)}</strong>
+                  <span>Total para ${escapeHTML(dateLabel)}:</span>
+                  <span class="status-subtotal pending">A autorizar: ${formatCurrencyBR((dateByStatus.get(payment.dueDate || "") || {}).pending || 0)}</span>
+                  <span class="status-subtotal authorized">Autorizado: ${formatCurrencyBR((dateByStatus.get(payment.dueDate || "") || {}).authorized || 0)}</span>
+                  <span class="status-subtotal paid">Pago: ${formatCurrencyBR((dateByStatus.get(payment.dueDate || "") || {}).paid || 0)}</span>
+                  <span class="status-subtotal confirmation">Confirmação de pagamento: ${formatCurrencyBR((dateByStatus.get(payment.dueDate || "") || {}).confirmation || 0)}</span>
+                  <span class="total-geral">Total Geral: <strong>${formatCurrencyBR(dateTotals.get(payment.dueDate || "") || 0)}</strong></span>
                 </div>
               </td>
             </tr>` : ""}`;
@@ -1330,6 +1344,13 @@
           }
         } else if (field === "remittanceDate") {
           payment.remittanceDate = event.target.value;
+        } else if (field === "status") {
+          payment[field] = event.target.value;
+          // Lançamentos autorizados ou pagos dispensam método/remessa: limpa automaticamente
+          if (payment.status === "authorized" || payment.status === "paid") {
+            payment.remittanceType = "";
+            payment.remittanceDate = "";
+          }
         } else {
           payment[field] = event.target.value;
           if (field === "dueDate" && ["standard", "pix"].includes(paymentRemittanceType(payment))) {
