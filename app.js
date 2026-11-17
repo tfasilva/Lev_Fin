@@ -889,7 +889,18 @@
         $("ocrRows").innerHTML = visibleRows.map(({ row, originalIndex }, displayIndex) => {
           const confidence = row.confidence < 75 ? "Leitura baixa — confira com atenção" : `Confiança ${row.confidence}%`;
           const confidenceClass = row.confidence < 75 ? "import-confidence low" : "import-confidence";
-          const isDateHidden = !row.remittanceType || row.remittanceType === "manual" || row.remittanceType === "gestao";
+          const hidesRemittance = row.status === "authorized" || row.status === "paid";
+          const isDateHidden = hidesRemittance || !row.remittanceType || row.remittanceType === "manual" || row.remittanceType === "gestao";
+          const remittanceMethodHtml = hidesRemittance ? "" : `<div>
+                <label>Método no Banco</label>
+                <select data-import-field="remittanceType" class="${row.remittanceType ? "" : "ocr-field-missing}">
+                  <option value=""${!row.remittanceType ? " selected" : ""}>⚠️ Selecione o método</option>
+                  <option value="standard"${row.remittanceType === "standard" ? " selected" : ""}>✉️ Remessa</option>
+                  <option value="pix"${row.remittanceType === "pix" ? " selected" : ""}>✉️ Remessa_PIX</option>
+                  <option value="manual"${row.remittanceType === "manual" ? " selected" : ""}>📝 Lançamento Manual</option>
+                  <option value="gestao"${row.remittanceType === "gestao" ? " selected" : ""}>📝 Lançamento Gestão</option>
+                </select>
+              </div>`;
           return `<article class="import-row" data-import-row="${originalIndex}">
             <div class="import-row-heading">
               <span>Lançamento ${displayIndex + 1}</span>
@@ -1821,9 +1832,11 @@
 
         lines.push(`${index + 1}️⃣ *${companyName}*`);
         lines.push(`💵 ${balanceLabel}: *${balanceFormatted}*`);
-        lines.push(`✴️ Soma total a Pagar: *${totalPayable}*`);
-        lines.push(`💰 Soma total Pago: *${formatCurrencyBR(totals.paid)}*`);
-        lines.push(`✅ Saldo Final Bradesco: *${formatCurrencyBR(finalBalance)}*`);
+        lines.push(`✴️ Total Geral: *${totalPayable}*`);
+        lines.push(`💰 Total em Aberto: *${totalPayable}*`);
+        lines.push(`✅ Total Pago: *${formatCurrencyBR(totals.paid)}*`);
+        const balanceSign = finalBalance >= 0 ? "🟢" : "🔴";
+        lines.push(`${balanceSign} Saldo Final Bradesco: *${formatCurrencyBR(finalBalance)}*`);
         lines.push(WHATSAPP_SEPARATOR);
         lines.push("");
 
