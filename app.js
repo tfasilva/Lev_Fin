@@ -891,9 +891,10 @@
           const confidenceClass = row.confidence < 75 ? "import-confidence low" : "import-confidence";
           const hidesRemittance = row.status === "authorized" || row.status === "paid";
           const isDateHidden = hidesRemittance || !row.remittanceType || row.remittanceType === "manual" || row.remittanceType === "gestao";
-          const remittanceMethodHtml = hidesRemittance ? "" : `<div>
+          const remittanceClass = row.remittanceType ? "" : "ocr-field-missing";
+        const remittanceMethodHtml = hidesRemittance ? "" : `<div>
                 <label>Método no Banco</label>
-                <select data-import-field="remittanceType" class="${row.remittanceType ? "" : "ocr-field-missing}">
+                <select data-import-field="remittanceType" class="${remittanceClass}">
                   <option value=""${!row.remittanceType ? " selected" : ""}>⚠️ Selecione o método</option>
                   <option value="standard"${row.remittanceType === "standard" ? " selected" : ""}>✉️ Remessa</option>
                   <option value="pix"${row.remittanceType === "pix" ? " selected" : ""}>✉️ Remessa_PIX</option>
