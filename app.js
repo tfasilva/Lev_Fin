@@ -1189,11 +1189,14 @@
           const remClass = hidesDate ? "remittance-cell" : "remittance-cell has-date";
           const isLastOfDate = index === paymentsToRender.length - 1 || paymentsToRender[index + 1].dueDate !== payment.dueDate;
           const dateLabel = payment.dueDate ? dateBR(payment.dueDate) : "Data não informada";
-          const statusTotalsHtml = (state.config.statuses || []).map((s) => {
-            const val = (dateByStatus.get(payment.dueDate || "") || {})[s.id] || 0;
-            const tone = s.countAs === "paid" ? "tone-paid" : s.countAs === "authorized" ? "tone-authorized" : "tone-open";
-            return `<div class="day-total-chip ${tone} clickable-filter" data-status-filter="${escapeHTML(s.id)}" data-status-id="${escapeHTML(s.id)}"><span class="day-total-chip-label">${escapeHTML(s.label)}</span><strong>${formatCurrencyBR(val)}</strong></div>`;
-          }).join("");
+          const statusDisplayOrder = { paid: 0, authorized: 1, open: 2 };
+          const statusTotalsHtml = [...(state.config.statuses || [])]
+            .sort((a, b) => (statusDisplayOrder[a.countAs] ?? 9) - (statusDisplayOrder[b.countAs] ?? 9))
+            .map((s) => {
+              const val = (dateByStatus.get(payment.dueDate || "") || {})[s.id] || 0;
+              const tone = s.countAs === "paid" ? "tone-paid" : s.countAs === "authorized" ? "tone-authorized" : "tone-open";
+              return `<div class="day-total-chip ${tone} clickable-filter" data-status-filter="${escapeHTML(s.id)}" data-status-id="${escapeHTML(s.id)}"><span class="day-total-chip-label">${escapeHTML(s.label)}</span><strong>${formatCurrencyBR(val)}</strong></div>`;
+            }).join("");
           return `
             <tr data-payment="${originalIndex}">
               <td data-label="Vencimento">
@@ -2030,12 +2033,19 @@
 
             const dayPayable = paymentsForDate.reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
             const paymentsToDescribe = paymentsForDate.filter((p) => statusRequiresRemittance(p.status));
+            const statusDisplayOrder = { paid: 0, authorized: 1, open: 2 };
+            const statusLines = [...(state.config.statuses || [])]
+              .sort((a, b) => (statusDisplayOrder[a.countAs] ?? 9) - (statusDisplayOrder[b.countAs] ?? 9))
+              .map((s) => {
+                const val = paymentsForDate.filter((p) => getStatusConfig(p.status).id === s.id).reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
+                return { s, val };
+              });
+            const allPaid = dayPayable > 0 && paymentsForDate.every((p) => statusCountAs(p.status) === "paid");
 
-            lines.push(`➡️ *PARA ${dateBR(date)}:*`);
+            lines.push(`➡️ *PARA ${dateBR(date)}:*${allPaid ? " ✅" : ""}`);
             lines.push(`💵 *Total a pagar:* *${formatCurrencyBR(dayPayable)}*`);
-            (state.config.statuses || []).forEach((s) => {
-              const val = paymentsForDate.filter((p) => getStatusConfig(p.status).id === s.id).reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
-              if (s.countAs !== "open" || val > 0) lines.push(`${s.label}: *${formatCurrencyBR(val)}*`);
+            statusLines.forEach(({ s, val }) => {
+              if (val > 0) lines.push(`${s.label}: *${formatCurrencyBR(val)}*`);
             });
 
             const groups = {};
@@ -2162,8 +2172,8 @@
                 const dateTag = hasConfirmation ? " (CONFIRMAÇÃO DE PAGAMENTO)" : "";
                 lines.push(`➡️ *PARA ${dateBR(date)}:*${dateTag}`);
                 lines.push(`💵 *Total A Pagar:* ${formatCurrencyBR(dayPayable)}`);
-                lines.push(`✳️ *Total Autorizado:* ${formatCurrencyBR(dayAuthorized)}`);
                 lines.push(`💚 *Total Pago:* ${formatCurrencyBR(dayPaid)}`);
+                lines.push(`✳️ *Total Autorizado:* ${formatCurrencyBR(dayAuthorized)}`);
                 lines.push(`✴️ *Total a Autorizar:* ${formatCurrencyBR(dayPending)}`);
 
                 // Agrupamento inteligente por Método / Remessa
