@@ -308,13 +308,13 @@
       }
 
       function dateBR(isoDate) {
-        if (!isoDate || !/^\d{4}-\d{2}-\d{2}$/.test(isoDate)) return "—";
+        if (!isoDate || !/^\d{4}-\d{2}-\d{2}$/.test(isoDate)) return "|";
         const [year, month, day] = isoDate.split("-");
         return `${day}/${month}/${year}`;
       }
 
       function dateShort(isoDate) {
-        if (!isoDate || !/^\d{4}-\d{2}-\d{2}$/.test(isoDate)) return "—";
+        if (!isoDate || !/^\d{4}-\d{2}-\d{2}$/.test(isoDate)) return "|";
         const [year, month, day] = isoDate.split("-");
         return `${day}.${month}.${year}`;
       }
@@ -389,7 +389,7 @@
       function remittanceLabel(payment) {
         const type = paymentRemittanceType(payment);
         const cfg = getRemittanceMethodConfig(type);
-        if (!cfg) return type || "—";
+        if (!cfg) return type || "|";
         const base = cfg.label.replace(/^[^\p{L}\p{N}]+/u, "").trim() || cfg.label;
         if (!cfg.requiresDate) return base;
         const date = paymentRemittanceDate(payment);
@@ -863,7 +863,7 @@
           .sort((a, b) => sortRows(a.row, b.row, state.ocrSort));
 
         $("ocrRows").innerHTML = visibleRows.map(({ row, originalIndex }, displayIndex) => {
-          const confidence = row.confidence < 75 ? "Leitura baixa — confira com atenção" : `Confiança ${row.confidence}%`;
+          const confidence = row.confidence < 75 ? "Leitura baixa | confira com atenção" : `Confiança ${row.confidence}%`;
           const confidenceClass = row.confidence < 75 ? "import-confidence low" : "import-confidence";
           const needsRem = statusRequiresRemittance(row.status);
           const remType = row.remittanceType || firstRemittanceId();
@@ -1606,13 +1606,18 @@
             const rank = { paid: 0, authorized: 1, pending: 2, confirmation: 3 };
             return (rank[a.status] ?? 9) - (rank[b.status] ?? 9);
           });
-          const line = (payment) => `
+          const line = (payment) => {
+            const methodText = statusRequiresRemittance(payment.status)
+              ? remittanceLabel(payment)
+              : `${getStatusConfig(payment.status).label || statusLabel(payment)} (não se aplica)`;
+            return `
             <tr class="${statusClass(payment)}">
               <td class="pdf-col-amount">${escapeHTML(formatCurrencyBR(Number(payment.amount) || 0))}</td>
               <td class="pdf-col-desc">${escapeHTML(payment.description || "Sem descrição")}</td>
               <td class="pdf-col-status"><span class="pdf-status-pill ${statusClass(payment)}">${escapeHTML(statusLabel(payment))}</span></td>
-              <td class="pdf-col-method">${escapeHTML(remittanceLabel(payment))}</td>
+              <td class="pdf-col-method">${escapeHTML(methodText)}</td>
             </tr>`;
+          };
           const totalsBy = (list) => list.reduce((sum, payment) => sum + (Number(payment.amount) || 0), 0);
           const pending = payments.filter((p) => statusCountAs(p.status) === "open");
           const settled = payments.filter((p) => statusCountAs(p.status) !== "open");
@@ -1927,7 +1932,7 @@
           lines.push(`🔴 *Saldo zerado/negativo:* Lançamentos pendentes a partir de ${dateBR(dates[0].date)}.`);
           dates.forEach((entry) => {
             const label = dateBR(entry.date);
-            lines.push(`🔴 *${label}:* Pendente — Total ${formatCurrencyBR(entry.total)}.`);
+            lines.push(`🔴 *${label}:* Pendente | Total ${formatCurrencyBR(entry.total)}.`);
             entry.items.forEach((item) => lines.push(`   • ${formatCurrencyBR(item.amount)} | ${item.desc}`));
           });
           return lines.join("\n");
@@ -1940,7 +1945,7 @@
           const label = dateBR(entry.date);
 
           if (blocked) {
-            lines.push(`🔴 *${label}:* Pendente — Total ${formatCurrencyBR(entry.total)}.`);
+            lines.push(`🔴 *${label}:* Pendente | Total ${formatCurrencyBR(entry.total)}.`);
             entry.items.forEach((item) => lines.push(`   • ${formatCurrencyBR(item.amount)} | ${item.desc}`));
             return;
           }
@@ -2007,7 +2012,7 @@
         const saldoFinalIcon = saldoFinal >= 0 ? "🟢" : "🔴";
 
         lines.push(`${index + 1}️⃣ *${companyName}*`);
-        lines.push(`🏦 Banco: ${getCompanyBankName(company) || "—"}`);
+        lines.push(`🏦 Banco: ${getCompanyBankName(company) || "|"}`);
         lines.push(`💵 Saldo Atual: *${balanceFormatted}*`);
         lines.push(`${saldoFinalIcon} Saldo Final: *${formatCurrencyBR(saldoFinal)}*`);
         lines.push(WHATSAPP_SEPARATOR);
@@ -2067,7 +2072,7 @@
               const needsDate = mcfg ? mcfg.requiresDate : ["standard","pix"].includes(group.type);
               const dateLabel = needsDate && group.remittanceDate ? ` ${dateShort(group.remittanceDate)}` : "";
               lines.push("");
-              lines.push(`✉️ *${typeLabel}${dateLabel}* — *${formatCurrencyBR(groupTotal)}*`);
+              lines.push(`*${typeLabel}${dateLabel}* | *${formatCurrencyBR(groupTotal)}*`);
               group.items.forEach((payment) => {
                 lines.push(`✔️ ${formatCurrencyBR(Number(payment.amount) || 0)} | ${payment.description.trim() || "Sem descrição"}`);
                 });
@@ -2083,7 +2088,7 @@
       function formatWhatsAppPeriodHeader(company = null) {
         const toShortDate = (date) => {
           const formatted = dateBR(date);
-          return formatted === "—" ? formatted : formatted.slice(0, 6) + formatted.slice(-2);
+          return formatted === "|" ? formatted : formatted.slice(0, 6) + formatted.slice(-2);
         };
         const period = company ? getCompanyPeriod(company) : state.draft;
         const start = toShortDate(period.startDate);
@@ -2195,12 +2200,12 @@
 
                   if (group.type === "standard") {
                     const dStr = group.rDate ? ` ${dateShort(group.rDate)}` : "";
-                    lines.push(`✉️ *Remessa${dStr} - ${totalStr}:*`);
+                    lines.push(`✉️ *Remessa${dStr} | ${totalStr}:*`);
                   } else if (group.type === "pix") {
                     const dStr = group.rDate ? ` ${dateShort(group.rDate)}` : "";
-                    lines.push(`✉️ *Remessa_PIX${dStr} - ${totalStr}:*`);
+                    lines.push(`✉️ *Remessa_PIX${dStr} | ${totalStr}:*`);
                   } else if (group.type === "gestao") {
-                    lines.push(`📝 *Lançamento Gestão - ${totalStr}*`);
+                    lines.push(`📝 *Lançamento Gestão | ${totalStr}*`);
                   } else {
                     lines.push(`📝 *Lançamento Manual | ${totalStr}*`);
                   }
