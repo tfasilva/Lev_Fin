@@ -1192,7 +1192,7 @@
           const statusTotalsHtml = (state.config.statuses || []).map((s) => {
             const val = (dateByStatus.get(payment.dueDate || "") || {})[s.id] || 0;
             const tone = s.countAs === "paid" ? "tone-paid" : s.countAs === "authorized" ? "tone-authorized" : "tone-open";
-            return `<div class="day-total-chip ${tone} clickable-filter" data-status-filter="${escapeHTML(s.id)}"><span class="day-total-chip-label">${escapeHTML(s.label)}</span><strong>${formatCurrencyBR(val)}</strong></div>`;
+            return `<div class="day-total-chip ${tone} clickable-filter" data-status-filter="${escapeHTML(s.id)}" data-status-id="${escapeHTML(s.id)}"><span class="day-total-chip-label">${escapeHTML(s.label)}</span><strong>${formatCurrencyBR(val)}</strong></div>`;
           }).join("");
           return `
             <tr data-payment="${originalIndex}">
@@ -1225,13 +1225,13 @@
               </td>
             </tr>
             ${isLastOfDate ? `
-            <tr class="payment-date-total">
+            <tr class="payment-date-total" data-day-group="${escapeHTML(payment.dueDate || "")}">
               <td colspan="6">
                 <div class="payment-date-total-content">
                   <div class="day-total-title">TOTAIS DE ${escapeHTML(dateLabel)}</div>
                   <div class="day-total-metrics">
                     ${statusTotalsHtml}
-                    <div class="day-total-chip is-overall"><span class="day-total-chip-label">Total Geral</span><strong data-day-total="${escapeHTML(payment.dueDate || "")}">${formatCurrencyBR(dateTotals.get(payment.dueDate || "") || 0)}</strong></div>
+                    <div class="day-total-chip is-overall"><span class="day-total-chip-label">Total Geral</span><strong data-day-total="overall">${formatCurrencyBR(dateTotals.get(payment.dueDate || "") || 0)}</strong></div>
                   </div>
                 </div>
               </td>
@@ -1305,18 +1305,25 @@
       function updatePaymentDateTotals() {
         const company = state.draft.companies[state.activeCompany];
         if (!company) return;
+        const payments = company.payments || [];
         $("paymentRows").querySelectorAll(".payment-date-total").forEach((totalRow) => {
-          let row = totalRow.previousElementSibling;
-          let total = 0;
-          let dateKey = "";
-          while (row && row.matches("tr[data-payment]")) {
-            const payment = company.payments[Number(row.dataset.payment)];
-            total += Number(payment?.amount) || 0;
-            if (!dateKey) dateKey = payment?.dueDate || "";
-            row = row.previousElementSibling;
-          }
-          const value = totalRow.querySelector("[data-day-total]") || totalRow.querySelector(".payment-date-total-content strong");
-          if (value) value.textContent = formatCurrencyBR(total);
+          const dateKey = totalRow.dataset.dayGroup ?? "";
+          const dayPayments = payments.filter((p) => (p.dueDate || "") === dateKey);
+          const byStatus = {};
+          let overall = 0;
+          dayPayments.forEach((p) => {
+            const amt = Number(p.amount) || 0;
+            overall += amt;
+            const sid = getStatusConfig(p.status).id;
+            byStatus[sid] = (byStatus[sid] || 0) + amt;
+          });
+          totalRow.querySelectorAll("[data-status-id]").forEach((chip) => {
+            const sid = chip.dataset.statusId;
+            const strong = chip.querySelector("strong");
+            if (strong) strong.textContent = formatCurrencyBR(byStatus[sid] || 0);
+          });
+          const overallEl = totalRow.querySelector('[data-day-total="overall"]') || totalRow.querySelector("[data-day-total]");
+          if (overallEl) overallEl.textContent = formatCurrencyBR(overall);
         });
       }
 
@@ -1373,6 +1380,7 @@
         }
 
         $("companyTotals").innerHTML = totalsMarkup(company);
+        updatePaymentDateTotals();
         renderOverview();
         renderTabs();
         updateWhatsAppPreview();
@@ -2932,6 +2940,7 @@
       /* Event Listeners */
       $("balanceInput").addEventListener("input", () => {
         readActiveCompany();
+        if ($("companyTotals")) $("companyTotals").innerHTML = totalsMarkup(state.draft.companies[state.activeCompany]);
         renderOverview();
         renderTabs();
         updateWhatsAppPreview();
