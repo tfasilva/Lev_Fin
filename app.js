@@ -14,7 +14,7 @@
       function defaultConfig() {
         return {
           statuses: [
-            { id: "pending", label: "✴️ A Autorizar (Pendente)", remittanceRequired: true, countAs: "open" },
+            { id: "pending", label: "✴️ A Autorizar", remittanceRequired: true, countAs: "open" },
             { id: "authorized", label: "✳️ Autorizado", remittanceRequired: false, countAs: "authorized" },
             { id: "paid", label: "✅ Pago", remittanceRequired: false, countAs: "paid" },
             { id: "confirmation", label: "⚠️ Confirmação de Pagamento", remittanceRequired: true, countAs: "open" }
@@ -2501,7 +2501,7 @@
       }
 
       const STATUS_ID_OPTIONS = [
-        { id: "pending", label: "Pendente (A Autorizar)" },
+        { id: "pending", label: "A Autorizar" },
         { id: "authorized", label: "Autorizado" },
         { id: "paid", label: "Pago" },
         { id: "confirmation", label: "Confirmação de Pagamento" }
