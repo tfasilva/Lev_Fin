@@ -686,6 +686,34 @@
     tbody tr:hover {
       background: rgba(23, 107, 75, .02);
     }
+    .payment-subtotal-method-row td {
+      padding: 3px 8px;
+      background: rgba(23, 107, 75, 0.04);
+      border-bottom: 1px dashed var(--line);
+      font-size: 11px;
+      color: var(--ink-secondary);
+    }
+    .payment-subtotal-method-content {
+      display: flex;
+      justify-content: flex-end;
+      align-items: center;
+      gap: 14px;
+      padding: 2px 12px;
+      text-align: right;
+    }
+    .payment-subtotal-method-content span {
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--ink-secondary);
+    }
+    .payment-subtotal-method-content strong {
+      font-size: 12px;
+      font-weight: 800;
+      color: var(--ink);
+      font-variant-numeric: tabular-nums;
+      min-width: 90px;
+      text-align: right;
+    }
     .payment-date-total td {
       padding: 0;
       border-top: 1px solid var(--line);

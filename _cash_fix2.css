@@ -1,0 +1,5 @@
+/* Remove a seta fantasma do ::before que ainda ocupa linha antes do label */
+.cash-movement-item .cash-movement-tag::before {
+  content: "";
+  display: none;
+}

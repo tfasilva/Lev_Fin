@@ -1,0 +1,28 @@
+/* Badge de status do pagamento no cartão da comanda */
+.cash-ticket-head {
+  align-items: center;
+  gap: 8px;
+}
+
+.cash-ticket .payment-status-pill {
+  font-size: 9px;
+  padding: 3px 9px;
+  border-radius: 999px;
+  letter-spacing: .04em;
+}
+
+.cash-ticket .payment-status-pill.payment-status-pago {
+  background: #e4f0e7;
+  color: #2e7d4f;
+}
+
+.cash-ticket .payment-status-pill.payment-status-pendente {
+  background: #fff2dd;
+  color: #9b6b28;
+}
+
+.cash-ticket .payment-status-pill.payment-status-cancelado,
+.cash-ticket .payment-status-pill.payment-status-estornado {
+  background: #fbe9e7;
+  color: #a13d3d;
+}

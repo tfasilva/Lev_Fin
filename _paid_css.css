@@ -1,0 +1,9 @@
+/* Comandas pagas — subseção dentro da coluna */
+.cash-paid-block {
+    margin-top: 14px;
+}
+
+.cash-paid-block .cash-column-head h2 {
+    font-size: 13px;
+    color: var(--muted);
+}

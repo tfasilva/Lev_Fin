@@ -1,0 +1,14 @@
+/* Refino final: badge circular com SVG seta + rótulo, tudo centrado */
+.cash-movement-item .cash-movement-tag::before {
+  content: none;
+}
+
+.cash-movement-item .cash-movement-tag::after {
+  content: "";
+  order: -1;
+  width: 15px;
+  height: 15px;
+  margin: 0;
+  display: block;
+  flex: 0 0 auto;
+}

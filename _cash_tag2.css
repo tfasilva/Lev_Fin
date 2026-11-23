@@ -1,0 +1,10 @@
+/* Seta mais limpa: usa caractere de seta fina, peso levemente menor para não "pesar" */
+.cash-movement-item .cash-movement-tag::before {
+  content: "↑";
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.cash-movement-item .cash-movement-tag.is-out::before {
+  content: "↓";
+}

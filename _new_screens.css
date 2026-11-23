@@ -1,0 +1,119 @@
+/* ===== Telas Cozinha / Balcão ===== */
+.kitchen-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+    gap: 18px;
+}
+
+.kitchen-card {
+    display: flex;
+    gap: 14px;
+    background: #fff;
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    padding: 14px;
+    box-shadow: 0 2px 8px rgba(23, 35, 29, .06);
+}
+
+.kitchen-photo {
+    flex: 0 0 132px;
+    height: 132px;
+    border-radius: 10px;
+    overflow: hidden;
+    background: #f0efe9;
+    display: grid;
+    place-items: center;
+    font-size: 44px;
+}
+
+.kitchen-photo img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+.kitchen-info {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.kitchen-info header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 8px;
+}
+
+.kitchen-info time {
+    color: var(--muted);
+    font-size: 11.5px;
+}
+
+.kitchen-info ul {
+    margin: 4px 0;
+    padding-left: 16px;
+    font-size: 13px;
+}
+
+.kitchen-notes {
+    font-size: 12px;
+    color: #9b6b28;
+    background: #fff7ea;
+    border-radius: 8px;
+    padding: 6px 8px;
+}
+
+.kitchen-actions {
+    margin-top: auto;
+    display: flex;
+    gap: 8px;
+}
+
+.kitchen-actions select {
+    flex: 1;
+}
+
+.counter-board {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 14px;
+}
+
+.counter-column {
+    background: #f7f8f6;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 12px;
+    min-height: 220px;
+}
+
+.counter-column h2 {
+    margin: 0 0 10px;
+    font-size: 15px;
+}
+
+.counter-card {
+    background: #fff;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 10px 12px;
+    margin-bottom: 8px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    font-size: 12.5px;
+}
+
+.counter-card .counter-items {
+    color: var(--muted);
+}
+
+.product-ingredients {
+    display: block;
+    color: var(--muted);
+    font-size: 12px;
+    margin-top: 2px;
+}

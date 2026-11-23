@@ -453,6 +453,23 @@
         return normalized.trim().startsWith("-") ? -amount : amount;
       }
 
+      function autoAdjustCompanyPeriod(company) {
+        if (!company) return;
+        const validDates = (company.payments || [])
+          .map((p) => p.dueDate)
+          .filter((d) => /^\d{4}-\d{2}-\d{2}$/.test(d))
+          .sort();
+        if (!validDates.length) return;
+        const minDate = validDates[0];
+        const maxDate = validDates[validDates.length - 1];
+        company.startDate = minDate;
+        company.endDate = maxDate;
+        if (state.draft && state.draft.companies[state.activeCompany] === company) {
+          $("startDate").value = minDate;
+          $("endDate").value = maxDate;
+        }
+      }
+
       function updatePeriodFromOcrRows(rows) {
         const dates = rows
           .map((row) => row.dueDate)
@@ -865,22 +882,6 @@
         $("ocrRows").innerHTML = visibleRows.map(({ row, originalIndex }, displayIndex) => {
           const confidence = row.confidence < 75 ? "Leitura baixa | confira com atenção" : `Confiança ${row.confidence}%`;
           const confidenceClass = row.confidence < 75 ? "import-confidence low" : "import-confidence";
-          const needsRem = statusRequiresRemittance(row.status);
-          const remType = row.remittanceType || firstRemittanceId();
-          const isDateHidden = !needsRem || !methodRequiresDate(remType);
-          const remittanceClass = row.remittanceType ? "" : "ocr-field-missing";
-
-          const remittanceFieldsHtml = !needsRem ? "" : `
-              <div data-remittance-method="${originalIndex}">
-                <label>Método no Banco</label>
-                <select data-import-field="remittanceType" class="${remittanceClass}">
-                  ${remittanceOptionsHTML(row.remittanceType, true)}
-                </select>
-              </div>
-              <div data-remittance-date="${originalIndex}"${isDateHidden ? ' class="hidden"' : ""}>
-                <label>Data da Remessa</label>
-                <input type="date" class="${row.remittanceDate ? "" : "ocr-field-missing"}" data-import-field="remittanceDate" value="${escapeHTML(row.remittanceDate)}">
-              </div>`;
 
           return `<article class="import-row" data-import-row="${originalIndex}">
             <div class="import-row-heading">
@@ -911,7 +912,6 @@
                   ${statusOptionsHTML(row.status)}
                 </select>
               </div>
-              ${remittanceFieldsHtml}
             </div>
           </article>`;
         }).join("");
@@ -948,42 +948,12 @@
               if (remittanceDateInput) remittanceDateInput.value = input.value;
             }
             if (field === "status") {
-              const rowData = state.importRows[index];
-              if (!statusRequiresRemittance(rowData.status)) {
-                rowData.remittanceType = "";
-                rowData.remittanceDate = "";
-              } else if (!rowData.remittanceType) {
-                rowData.remittanceType = firstRemittanceId();
-                rowData.remittanceDate = methodRequiresDate(rowData.remittanceType) ? (rowData.dueDate || "") : "";
-              } else if (!methodRequiresDate(rowData.remittanceType)) {
-                rowData.remittanceDate = "";
-              }
               renderOcrPreview();
               return;
             }
 
-            const rowData = state.importRows[index];
-            const needsRem = statusRequiresRemittance(rowData.status);
-            const needsValue = ["dueDate", "amount", "description", "status"].includes(field) ||
-              (needsRem && field === "remittanceType") ||
-              (needsRem && field === "remittanceDate" && methodRequiresDate(rowData.remittanceType));
-
+            const needsValue = ["dueDate", "amount", "description", "status"].includes(field);
             input.classList.toggle("ocr-field-missing", needsValue && !input.value);
-            if (field === "remittanceType") {
-              const hidesDate = !methodRequiresDate(input.value) || !input.value;
-              if (hidesDate) {
-                state.importRows[index].remittanceDate = "";
-              } else {
-                state.importRows[index].remittanceDate = state.importRows[index].dueDate || "";
-              }
-              const dateWrap = card.querySelector(`[data-remittance-date="${index}"]`);
-              if (dateWrap) dateWrap.classList.toggle("hidden", hidesDate);
-              const dateInput = card.querySelector('[data-import-field="remittanceDate"]');
-              if (dateInput) {
-                dateInput.value = state.importRows[index].remittanceDate;
-                dateInput.classList.toggle("ocr-field-missing", !hidesDate && !state.importRows[index].remittanceDate);
-              }
-            }
             renderOcrSummary();
           };
           input.addEventListener("input", update);
@@ -1071,29 +1041,23 @@
           if (!getStatusConfig(row.status) || !(state.config.statuses || []).some((s) => s.id === row.status)) {
             throw new Error(`Confirme a situação do lançamento ${index + 1}.`);
           }
-          if (statusRequiresRemittance(row.status)) {
-            if (!getRemittanceMethodConfig(row.remittanceType)) {
-              throw new Error(`Selecione o método bancário do lançamento ${index + 1}.`);
-            }
-            if (methodRequiresDate(row.remittanceType) && !row.remittanceDate) {
-              throw new Error(`Informe a data da remessa do lançamento ${index + 1}.`);
-            }
-          }
         });
 
-        company.payments.push(...state.importRows.map(({ dueDate, amount, description, status, remittanceType, remittanceDate }) => {
+        company.payments.push(...state.importRows.map(({ dueDate, amount, description, status }) => {
           const needsRem = statusRequiresRemittance(status);
-          const method = remittanceType || firstRemittanceId();
+          const method = firstRemittanceId();
           return {
             dueDate,
             amount: Number(amount),
             description: description.trim(),
             status,
             remittanceType: needsRem ? method : "",
-            remittanceDate: needsRem && methodRequiresDate(method) ? (remittanceDate || dueDate) : "",
+            remittanceDate: needsRem && methodRequiresDate(method) ? dueDate : "",
             createdAt
           };
         }));
+
+        autoAdjustCompanyPeriod(company);
 
         const count = state.importRows.length;
         state.importRows = [];
@@ -1163,13 +1127,33 @@
           paymentsToRender = paymentsToRender.filter((payment) => payment.status === state.paymentStatusFilter);
         }
         const dateDirection = state.paymentSort === "date-desc" ? -1 : 1;
+        // Ordenação inteligente: primeiro por Vencimento, depois por Situação (paid -> authorized -> open), depois pelo Método
+        const statusSortOrder = (status) => {
+          const cfg = getStatusConfig(status);
+          const map = { paid: 0, authorized: 1, open: 2 };
+          return map[cfg.countAs] ?? 9;
+        };
+        const remittanceSortOrder = (payment) => {
+          const type = paymentRemittanceType(payment);
+          const list = (state.config.remittanceMethods || []).map((m) => m.id);
+          const idx = list.indexOf(type);
+          return idx === -1 ? 99 : idx;
+        };
+
         paymentsToRender.sort((a, b) => {
           const dateOrder = String(a.dueDate || "").localeCompare(String(b.dueDate || "")) * dateDirection;
-          return dateOrder || sortRows(a, b, state.paymentSort);
+          if (dateOrder !== 0) return dateOrder;
+          const statusOrder = statusSortOrder(a.status) - statusSortOrder(b.status);
+          if (statusOrder !== 0) return statusOrder;
+          const remOrder = remittanceSortOrder(a) - remittanceSortOrder(b);
+          if (remOrder !== 0) return remOrder;
+          return sortRows(a, b, state.paymentSort);
         });
 
         const dateTotals = new Map();
         const dateByStatus = new Map();
+        const dateMethodTotals = new Map();
+
         paymentsToRender.forEach((payment) => {
           const date = payment.dueDate || "";
           const amount = Number(payment.amount) || 0;
@@ -1178,6 +1162,12 @@
           const statusMap = dateByStatus.get(date);
           const sid = getStatusConfig(payment.status).id;
           statusMap[sid] = (statusMap[sid] || 0) + amount;
+
+          // Chave de subtotal por dia + situação + método no banco
+          const remType = paymentRemittanceType(payment) || "";
+          const isRemReq = statusRequiresRemittance(payment.status);
+          const methodKey = `${date}__${payment.status}__${isRemReq ? remType : "none"}`;
+          dateMethodTotals.set(methodKey, (dateMethodTotals.get(methodKey) || 0) + amount);
         });
 
         $("paymentRows").innerHTML = paymentsToRender.map((payment, index) => {
@@ -1188,6 +1178,24 @@
           const hidesDate = !needsRemittance || !methodRequiresDate(remType);
           const remClass = hidesDate ? "remittance-cell" : "remittance-cell has-date";
           const isLastOfDate = index === paymentsToRender.length - 1 || paymentsToRender[index + 1].dueDate !== payment.dueDate;
+          const currentMethodKey = `${payment.dueDate || ""}__${payment.status}__${needsRemittance ? remType : "none"}`;
+          const nextPayment = index < paymentsToRender.length - 1 ? paymentsToRender[index + 1] : null;
+          const nextNeedsRem = nextPayment ? statusRequiresRemittance(nextPayment.status) : false;
+          const nextRemType = nextPayment ? (paymentRemittanceType(nextPayment) || firstRemittanceId()) : "";
+          const nextMethodKey = nextPayment ? `${nextPayment.dueDate || ""}__${nextPayment.status}__${nextNeedsRem ? nextRemType : "none"}` : null;
+          const isLastOfMethod = currentMethodKey !== nextMethodKey;
+
+          const methodSubtotal = dateMethodTotals.get(currentMethodKey) || 0;
+          const subtotalLabelText = needsRemittance ? `${statusCfg.label} - ${remittanceLabel(payment)}` : `${statusCfg.label}`;
+          const subtotalRowHtml = isLastOfMethod ? `
+            <tr class="payment-subtotal-method-row">
+              <td colspan="6">
+                <div class="payment-subtotal-method-content">
+                  <span>↳ Subtotal (${escapeHTML(subtotalLabelText)}):</span>
+                  <strong>${formatCurrencyBR(methodSubtotal)}</strong>
+                </div>
+              </td>
+            </tr>` : "";
           const dateLabel = payment.dueDate ? dateBR(payment.dueDate) : "Data não informada";
           const statusDisplayOrder = { paid: 0, authorized: 1, open: 2 };
           const statusTotalsHtml = [...(state.config.statuses || [])]
@@ -1227,6 +1235,7 @@
                 </div>
               </td>
             </tr>
+            ${subtotalRowHtml}
             ${isLastOfDate ? `
             <tr class="payment-date-total" data-day-group="${escapeHTML(payment.dueDate || "")}">
               <td colspan="6">
@@ -1248,22 +1257,13 @@
           input.addEventListener("change", (event) => {
             updatePaymentFromInput(event);
             const field = event.target.dataset.field;
-            if (field === "dueDate" || field === "status") {
+            if (field === "dueDate" || field === "status" || field === "remittanceType" || field === "remittanceDate") {
               renderPayments();
               renderOverview();
               renderTabs();
               updateWhatsAppPreview();
               scheduleAutoSave();
               return;
-            }
-            if (field === "remittanceType") {
-              const cell = event.target.closest(".remittance-cell");
-              const dateInput = cell && cell.querySelector('[data-field="remittanceDate"]');
-              if (cell && dateInput) {
-                const hides = !methodRequiresDate(event.target.value);
-                cell.classList.toggle("has-date", !hides);
-                dateInput.classList.toggle("hidden", hides);
-              }
             }
           });
           if (input.dataset.field === "amount") {
@@ -1375,10 +1375,13 @@
           }
         } else {
           payment[field] = event.target.value;
-          if (field === "dueDate" && methodRequiresDate(paymentRemittanceType(payment))) {
-            payment.remittanceDate = event.target.value;
-            const remittanceDateInput = row.querySelector('[data-field="remittanceDate"]');
-            if (remittanceDateInput) remittanceDateInput.value = event.target.value;
+          if (field === "dueDate") {
+            if (methodRequiresDate(paymentRemittanceType(payment))) {
+              payment.remittanceDate = event.target.value;
+              const remittanceDateInput = row.querySelector('[data-field="remittanceDate"]');
+              if (remittanceDateInput) remittanceDateInput.value = event.target.value;
+            }
+            autoAdjustCompanyPeriod(company);
           }
         }
 
@@ -1889,108 +1892,75 @@
       }
 
       function calculateCompanyObservation(company) {
-        const totals = paymentTotals(company);
         const initialBalance = Number(company.balance) || 0;
-        const finalBalance = initialBalance - (totals.pending + totals.authorized);
+        const allDates = getRelevantPaymentDates(company);
+        const payments = company.payments || [];
 
-        if (finalBalance >= 0) {
-          if ((totals.payable || 0) === 0) {
-            return "✅ *Sem lançamentos previstos no período.*";
-          }
-          return `✅ *Saldo suficiente:* Cobre todos os lançamentos (Sobram ${formatCurrencyBR(finalBalance)}).`;
+        if (!allDates.length || !payments.length) {
+          return "✅ *Sem lançamentos previstos no período.*";
         }
 
-        const payments = (company.payments || [])
-          .filter((p) => statusCountAs(p.status) !== "paid" && (Number(p.amount) || 0) > 0)
-          .slice()
-          .sort((a, b) => {
-            const dateCmp = String(a.dueDate || "").localeCompare(String(b.dueDate || ""));
-            if (dateCmp !== 0) return dateCmp;
-            const amountDiff = (Number(a.amount) || 0) - (Number(b.amount) || 0);
-            if (amountDiff !== 0) return amountDiff;
-            return String(a.description || "").localeCompare(String(b.description || ""), "pt-BR");
-          });
+        const lines = [];
+        let currentBalance = initialBalance;
 
-        if (!payments.length) {
-          return `⚠️ *Saldo negativo:* ${formatCurrencyBR(finalBalance)}.`;
-        }
+        allDates.forEach((date, dateIndex) => {
+          const dayPayments = payments.filter((p) => p.dueDate === date);
+          // Considerar somente autorizados e a autorizar (exclui pagos já debitados)
+          const openPayments = dayPayments.filter((p) => statusCountAs(p.status) !== "paid" && (Number(p.amount) || 0) > 0);
+          const dayOpenTotal = openPayments.reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
 
-        const byDate = new Map();
-        payments.forEach((p) => {
-          const key = p.dueDate || "";
-          if (!byDate.has(key)) byDate.set(key, { date: key, total: 0, items: [] });
-          const entry = byDate.get(key);
-          const amt = Number(p.amount) || 0;
-          entry.total += amt;
-          entry.items.push({ amount: amt, desc: (p.description || "Lançamento").split("|")[0].trim() });
-        });
-        const dates = Array.from(byDate.values()).sort((a, b) => String(a.date).localeCompare(String(b.date)));
+          lines.push(`➡️ *PARA ${dateBR(date)}:*`);
+          lines.push(`💵 *Total em aberto:* *${formatCurrencyBR(dayOpenTotal)}*`);
 
-        const lines = [`⚠️ *Saldo negativo:* ${formatCurrencyBR(finalBalance)}`];
+          if (openPayments.length === 0) {
+            const saldoIcon = currentBalance >= 0 ? "🟢" : "🔴";
+            lines.push(`${saldoIcon} *Saldo para a data:* *${formatCurrencyBR(currentBalance)}*`);
+            lines.push("📝 *OBS:* Sem pendências para esta data.");
+          } else if (currentBalance >= dayOpenTotal) {
+            currentBalance -= dayOpenTotal;
+            lines.push(`🟢 *Saldo para a data:* *${formatCurrencyBR(currentBalance)}*`);
+            lines.push("📝 *OBS:* Saldo suficiente.");
+          } else {
+            // Saldo insuficiente para pagar o total do dia
+            // Ordenar lançamentos por valor crescente para tentar quitar o máximo de parcelas inteiras
+            const sortedPayments = openPayments.slice().sort((a, b) => {
+              const diff = (Number(a.amount) || 0) - (Number(b.amount) || 0);
+              if (diff !== 0) return diff;
+              return String(a.description || "").localeCompare(String(b.description || ""), "pt-BR");
+            });
 
-        if (initialBalance <= 0) {
-          lines.push(`🔴 *Saldo zerado/negativo:* Lançamentos pendentes a partir de ${dateBR(dates[0].date)}.`);
-          dates.forEach((entry) => {
-            const label = dateBR(entry.date);
-            lines.push(`🔴 *${label}:* Pendente | Total ${formatCurrencyBR(entry.total)}.`);
-            entry.items.forEach((item) => lines.push(`   • ${formatCurrencyBR(item.amount)} | ${item.desc}`));
-          });
-          return lines.join("\n");
-        }
+            const payableItems = [];
+            const pendingItems = [];
 
-        let remaining = initialBalance;
-        let blocked = false;
+            sortedPayments.forEach((p) => {
+              const amt = Number(p.amount) || 0;
+              if (currentBalance >= amt) {
+                currentBalance -= amt;
+                payableItems.push(p);
+              } else {
+                pendingItems.push(p);
+              }
+            });
 
-        dates.forEach((entry) => {
-          const label = dateBR(entry.date);
+            // O saldo final desta data após as deduções possíveis (ou negativo se nada foi coberto)
+            const remainingToPay = pendingItems.reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
+            const deficit = remainingToPay - currentBalance;
+            currentBalance = -deficit;
 
-          if (blocked) {
-            lines.push(`🔴 *${label}:* Pendente | Total ${formatCurrencyBR(entry.total)}.`);
-            entry.items.forEach((item) => lines.push(`   • ${formatCurrencyBR(item.amount)} | ${item.desc}`));
-            return;
-          }
+            lines.push(`🔴 *Saldo para a data:* *${formatCurrencyBR(currentBalance)}*`);
 
-          const paidItems = [];
-          const pendingItems = [];
-          entry.items.forEach((item) => {
-            if (remaining >= item.amount) {
-              remaining -= item.amount;
-              paidItems.push(item);
+            if (payableItems.length > 0) {
+              const paidTotal = payableItems.reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
+              lines.push(`⚠️ *OBS: Saldo parcial* — É possível quitar integralmente *${payableItems.length}* parcela(s) (Total: ${formatCurrencyBR(paidTotal)}), restando *${pendingItems.length}* parcela(s) pendente(s) (Faltam ${formatCurrencyBR(deficit)}).`);
             } else {
-              pendingItems.push(item);
+              lines.push(`🔴 *OBS: Saldo insuficiente* — Nenhuma parcela pode ser quitada integralmente nesta data (Todas as *${pendingItems.length}* parcelas ficam pendentes; Faltam ${formatCurrencyBR(deficit)}).`);
             }
-          });
-
-          if (!pendingItems.length) {
-            lines.push(`🟢 *${label}:* Paga integral`);
-            lines.push(`   • Total ${formatCurrencyBR(entry.total)} -> Saldo após: ${formatCurrencyBR(remaining)}.`);
-            return;
           }
 
-          if (!paidItems.length) {
-            const needed = entry.total - remaining;
-            lines.push(`🟡 *${label}:* Saldo insuficiente`);
-            lines.push(`   • Sobrou ${formatCurrencyBR(remaining)}. Necessário mais ${formatCurrencyBR(needed)} para quitar o restante desta data (Total ${formatCurrencyBR(entry.total)}).`);
-            lines.push(`🔴 *${label} pendente:*`);
-            pendingItems.forEach((item) => lines.push(`   • ${formatCurrencyBR(item.amount)} | ${item.desc}`));
-            blocked = true;
-            return;
+          if (dateIndex < allDates.length - 1) {
+            lines.push(WHATSAPP_SEPARATOR);
           }
-
-          const paidTotal = paidItems.reduce((sum, item) => sum + item.amount, 0);
-          const pendingTotal = pendingItems.reduce((sum, item) => sum + item.amount, 0);
-          const needed = pendingTotal - remaining;
-          lines.push(`🟡 *${label}:* Parcial`);
-          lines.push(`   • Pago ${formatCurrencyBR(paidTotal)}.`);
-          lines.push(`   • Sobrou ${formatCurrencyBR(remaining)}. Necessário mais ${formatCurrencyBR(needed)} para quitar o restante desta data.`);
-          lines.push(`🔴 *${label} pendente:*`);
-          pendingItems.forEach((item) => lines.push(`   • ${formatCurrencyBR(item.amount)} | ${item.desc}`));
-          blocked = true;
         });
-
-        if (blocked) {
-          lines.push(`   • Saldo remanescente: ${formatCurrencyBR(remaining)}. Necessário mais ${formatCurrencyBR(Math.abs(finalBalance))} no total para quitar todos os lançamentos.`);
-        }
 
         return lines.join("\n");
       }
@@ -2086,15 +2056,26 @@
       }
 
       function formatWhatsAppPeriodHeader(company = null) {
-        const toShortDate = (date) => {
-          const formatted = dateBR(date);
-          return formatted === "|" ? formatted : formatted.slice(0, 6) + formatted.slice(-2);
-        };
         const period = company ? getCompanyPeriod(company) : state.draft;
-        const start = toShortDate(period.startDate);
-        const end = toShortDate(period.endDate);
-        const time = period.referenceTime || "--:--";
-        return ["*Levantamento de Pagamentos*", `*De ${start} a ${end} - ${time}*`];
+        const start = dateBR(period.startDate);
+        const end = dateBR(period.endDate);
+        const now = new Date();
+        const nowDay = String(now.getDate()).padStart(2, "0");
+        const nowMonth = String(now.getMonth() + 1).padStart(2, "0");
+        const nowYear = String(now.getFullYear()).slice(-2);
+        const nowHours = String(now.getHours()).padStart(2, "0");
+        const nowMinutes = String(now.getMinutes()).padStart(2, "0");
+        const dateTimeStr = `${nowDay}/${nowMonth}/${nowYear} | ${nowHours}:${nowMinutes}`;
+
+        const periodDatesStr = (start && end && start !== "|" && end !== "|")
+          ? (start === end ? start : `${start} a ${end}`)
+          : (start !== "|" ? start : (end !== "|" ? end : "A definir"));
+
+        return [
+          "*Levantamento de Pagamentos*",
+          `🕒 *Data/hora do levantamento:* ${dateTimeStr}`,
+          `📅 *Datas Analisadas:* ${periodDatesStr}`
+        ];
       }
 
       function formatWhatsApp() {
@@ -2357,32 +2338,20 @@
       function addPayment() {
         readActiveCompany();
         const company = state.draft.companies[state.activeCompany];
-        const hasPayments = state.draft.companies.some((item) => (item.payments || []).length > 0);
-        const firstPaymentDate = state.draft.endDate || todayISO();
         const createdAt = new Date().toISOString();
         if (!company.referenceTime) company.referenceTime = createdAt.slice(11, 16);
-        if (!hasPayments) {
-          const currentTime = new Date().toTimeString().slice(0, 5);
-          state.draft.startDate = state.draft.startDate || firstPaymentDate;
-          state.draft.endDate = state.draft.endDate || firstPaymentDate;
-          state.draft.referenceTime = state.draft.referenceTime || currentTime;
-          company.startDate = company.startDate || firstPaymentDate;
-          company.endDate = company.endDate || firstPaymentDate;
-          $("startDate").value = company.startDate;
-          $("endDate").value = company.endDate;
-          $("referenceTime").value = company.referenceTime;
-        }
         const defStatus = (state.config.statuses.find((s) => s.id === "pending") || state.config.statuses[0] || { id: "pending" }).id;
         const defMethod = firstRemittanceId();
         company.payments.push({
-          dueDate: firstPaymentDate,
+          dueDate: "",
           amount: "",
           description: "",
           status: defStatus,
           remittanceType: statusRequiresRemittance(defStatus) ? defMethod : "",
-          remittanceDate: statusRequiresRemittance(defStatus) && methodRequiresDate(defMethod) ? firstPaymentDate : "",
+          remittanceDate: "",
           createdAt
         });
+        autoAdjustCompanyPeriod(company);
         renderPayments();
         renderTabs();
         renderOverview();
@@ -2392,8 +2361,8 @@
         const rows = $("paymentRows").querySelectorAll("tr");
         if (rows.length) {
           const lastRow = rows[rows.length - 1];
-          const amountInput = lastRow.querySelector('[data-field="amount"]');
-          if (amountInput) amountInput.focus();
+          const dateInput = lastRow.querySelector('[data-field="dueDate"]');
+          if (dateInput) dateInput.focus();
         }
       }
 
@@ -2653,12 +2622,14 @@
         const grid = $("settingsGrid");
         grid.innerHTML = state.companies.map((entry, index) => {
           const company = entry && typeof entry === "object" ? entry : { name: typeof entry === "string" ? entry : "", bankName: "" };
+          const draftComp = state.draft && state.draft.companies && state.draft.companies[index];
+          const currentBank = company.bankName || (draftComp && (draftComp.bankName || draftComp.bank)) || "";
           return `
           <div class="field company-config-field">
             <label for="companyNameInput_${index}">Empresa ${index + 1}</label>
-            <input type="text" id="companyNameInput_${index}" data-company-name-index="${index}" value="${escapeHTML(company.name || "")}" placeholder="Nome da empresa">
+            <input type="text" id="companyNameInput_${index}" data-company-name-index="${index}" value="${escapeHTML(company.name || (draftComp && draftComp.name) || "")}" placeholder="Nome da empresa">
             <label for="companyBankInput_${index}" style="margin-top:8px;">Banco da empresa ${index + 1}</label>
-            <input type="text" id="companyBankInput_${index}" data-company-bank-index="${index}" value="${escapeHTML(company.bankName || "")}" placeholder="Ex.: Bradesco">
+            <input type="text" id="companyBankInput_${index}" data-company-bank-index="${index}" value="${escapeHTML(currentBank)}" placeholder="Ex.: Bradesco">
           </div>`;
         }).join("");
         updateSettingsAccessUI();
@@ -2924,8 +2895,8 @@
             state.draft.companies.forEach((comp, idx) => {
               const entry = state.companies[idx];
               if (entry) {
-                comp.name = entry.name || "";
-                if (!comp.bankName) comp.bankName = entry.bankName || "";
+                if (entry.name) comp.name = entry.name;
+                if (entry.bankName) comp.bankName = entry.bankName;
               }
               if (comp.bankName === undefined) comp.bankName = "";
               if (comp.startDate === undefined) comp.startDate = "";

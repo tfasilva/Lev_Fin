@@ -1,0 +1,37 @@
+/* Ajustes finais — Comanda do caixa */
+
+/* Cabeçalho: reduzir título para não competir com o botão fechar */
+.cash-ticket-dialog .admin-dialog-header h2 {
+  font-size: 19px;
+}
+
+/* Botão fechar: pill translúcido dentro da barra verde */
+.cash-ticket-dialog .dialog-close {
+  width: 32px;
+  height: 32px;
+  border: 0;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, .12);
+  color: #fff;
+  font-size: 20px;
+  flex: 0 0 auto;
+  transform: none;
+}
+
+.cash-ticket-dialog .dialog-close:hover {
+  background: rgba(255, 255, 255, .24);
+  color: #fff;
+}
+
+/* Espaçamento vertical entre blocos */
+.cash-ticket-dialog-total {
+  margin: 16px 0 12px;
+}
+
+.cash-ticket-dialog .table-wrap {
+  margin: 12px 0 6px;
+}
+
+.cash-ticket-dialog .field-hint:not(:first-of-type) {
+  margin-top: 12px;
+}

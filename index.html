@@ -31,10 +31,10 @@
         <p class="subtitle">Organize saldos bancários, autorizações e remessas das suas empresas.</p>
       </div>
       <div class="actions">
-        <button class="button" id="newReportButton" type="button">＋ Novo Levantamento</button>
-        <button class="button" id="exportCsvButton" type="button" title="Exportar dados para Excel/Sheets">📊 Exportar Excel</button>
-        <button class="button" id="printPdfButton" type="button">📄 Salvar PDF</button>
-        <button class="button primary" id="saveReportButton" type="button">💾 Salvar Levantamento</button>
+        <button class="button" id="newReportButton" type="button" title="Novo Levantamento">＋ Novo</button>
+        <button class="button" id="exportCsvButton" type="button" title="Exportar dados para Excel/Sheets">📊 Excel</button>
+        <button class="button" id="printPdfButton" type="button" title="Salvar PDF">📄 PDF</button>
+        <button class="button primary" id="saveReportButton" type="button" title="Salvar Levantamento">💾 Salvar</button>
       </div>
     </section>
 
@@ -159,10 +159,10 @@
 
       <div class="table-bottom-bar">
         <div class="quick-batch-actions">
-          <button class="button small primary" id="addPaymentButton" type="button">＋ Adicionar Lançamento</button>
-          <button class="button small" id="openPrintDialogButton" type="button">📷 Colar print para importar</button>
-          <button class="button small" id="markAllAuthorizedButton" type="button" title="Marcar todos os lançamentos desta empresa como autorizados">⚡ Todos Autorizados</button>
-          <button class="button small" id="markAllPaidButton" type="button" title="Marcar todos os lançamentos desta empresa como pagos">✅ Todos Pagos</button>
+          <button class="button small primary" id="addPaymentButton" type="button" title="Adicionar Lançamento">＋ Adicionar</button>
+          <button class="button small" id="openPrintDialogButton" type="button" title="Colar print para importar">📷 Importar Print</button>
+          <button class="button small" id="markAllAuthorizedButton" type="button" title="Marcar todos os lançamentos desta empresa como autorizados">⚡ Autorizados</button>
+          <button class="button small" id="markAllPaidButton" type="button" title="Marcar todos os lançamentos desta empresa como pagos">✅ Pagos</button>
           <button class="button small danger" id="clearCompanyPaymentsButton" type="button" title="Remover todos os lançamentos da empresa atual">🗑️ Limpar</button>
         </div>
         <div class="company-totals" id="companyTotals"></div>
@@ -175,26 +175,26 @@
             <p>Modelo da empresa ativa: <strong id="companyPreviewName">atual</strong>.</p>
           </div>
           <div class="company-preview-actions">
-            <button class="button small" id="copyCompanyReportButton" type="button">📋 Copiar empresa</button>
-            <button class="button small" id="copyReportButton" type="button">📋 Copiar resumo</button>
-            <button class="button small whatsapp" id="whatsappButton" type="button">💬 Abrir WhatsApp ↗</button>
-            <button class="button small" id="downloadReportButton" type="button">📄 Baixar .txt</button>
+            <button class="button small" id="copyCompanyReportButton" type="button" title="Copiar empresa">📋 Empresa</button>
+            <button class="button small" id="copyReportButton" type="button" title="Copiar resumo">📋 Resumo</button>
+            <button class="button small whatsapp" id="whatsappButton" type="button" title="Abrir no WhatsApp">💬 WhatsApp ↗</button>
+            <button class="button small" id="downloadReportButton" type="button" title="Baixar relatório em texto">📄 Baixar .txt</button>
           </div>
         </div>
         <div class="company-preview-header-box" id="companyPreviewHeaderBox" title="Cabeçalho do levantamento — copie individualmente">
           <span class="company-preview-header-label">Cabeçalho do Levantamento</span>
           <div class="whatsapp-bubble company-preview-header-bubble" id="companyWhatsAppHeader">--</div>
-          <button class="button small" id="copyPreviewHeaderButton" type="button">📋 Copiar cabeçalho</button>
+          <button class="button small" id="copyPreviewHeaderButton" type="button" title="Copiar cabeçalho">📋 Copiar</button>
         </div>
         <div class="company-preview-header-box" id="companyPreviewBodyBox" title="Dados da empresa — copie individualmente">
           <span class="company-preview-header-label">Dados da Empresa</span>
           <div class="whatsapp-bubble company-preview-bubble" id="companyWhatsAppPreview">Preencha os dados do levantamento para visualizar a mensagem.</div>
-          <button class="button small" id="copyPreviewCompanyButton" type="button">📋 Copiar empresa</button>
+          <button class="button small" id="copyPreviewCompanyButton" type="button" title="Copiar dados da empresa">📋 Copiar</button>
         </div>
         <div class="company-preview-header-box" id="companyPreviewObservationBox" title="Observação financeira da empresa — copie individualmente">
           <span class="company-preview-header-label">Observação do Saldo</span>
           <div class="whatsapp-bubble company-preview-bubble" id="companyWhatsAppObservation" style="font-weight: 500;">Calculando observação...</div>
-          <button class="button small" id="copyPreviewObservationButton" type="button">📋 Copiar observação</button>
+          <button class="button small" id="copyPreviewObservationButton" type="button" title="Copiar observação">📋 Copiar</button>
         </div>
       </section>
 
@@ -219,7 +219,7 @@
             <progress class="import-progress hidden" id="ocrProgress" max="1" value="0"></progress>
           </div>
           <div class="hidden" id="ocrReview">
-            <p class="import-warning">⚠️ <b>Atenção:</b> Revise os campos identificados antes de confirmar. Métodos de remessa bancária e datas de remessa devem ser selecionados abaixo.</p>
+            <p class="import-warning">⚠️ <b>Atenção:</b> Revise os campos identificados antes de confirmar. O método no banco/remessa poderá ser definido ou ajustado diretamente na tabela principal após a importação.</p>
             <div class="import-list-controls">
               <input id="ocrFilterInput" type="search" placeholder="Filtrar por fornecedor, valor ou data..." aria-label="Filtrar conferência OCR">
               <select id="ocrSort" aria-label="Ordenar conferência OCR">
@@ -233,8 +233,8 @@
             <div class="import-preview" id="ocrRows"></div>
             <div class="ocr-summary" id="ocrSummary" aria-live="polite"></div>
             <div class="import-actions">
-              <button class="button primary small" id="importRecognizedButton" type="button">Adicionar lançamentos à empresa</button>
-              <button class="button small" id="cancelImportButton" type="button">Cancelar</button>
+              <button class="button primary small" id="importRecognizedButton" type="button" title="Confirmar e adicionar lançamentos à empresa">＋ Adicionar à empresa</button>
+              <button class="button small" id="cancelImportButton" type="button" title="Cancelar importação">✕ Cancelar</button>
             </div>
           </div>
         </div>

@@ -1,0 +1,4 @@
+/* Itens: remove a barra de rolagem horizontal e usa linhas compactas */
+.cash-ticket-dialog .table-wrap {
+    overflow: visible;
+}
