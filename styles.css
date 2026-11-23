@@ -1733,6 +1733,121 @@
   .settings-gate-icon { flex: 0 0 auto; width: 44px; height: 44px; display: grid; place-items: center; font-size: 20px; border-radius: 12px; background: var(--green-pale); color: var(--green-dark); }
   .settings-gate-body { flex: 1 1 auto; min-width: 0; }
   .settings-gate-title { margin: 0; font-size: 16px; font-weight: 700; color: var(--ink); }
+
+  /* Bloqueio de Acesso Global (Proteção do Sistema) */
+  body.app-locked {
+    overflow: hidden !important;
+  }
+  body.app-locked .shell {
+    pointer-events: none !important;
+    user-select: none !important;
+    filter: blur(1.5px) grayscale(15%);
+    opacity: 0.75;
+  }
+  body.app-locked .app-lock-overlay {
+    pointer-events: auto !important;
+  }
+  .app-lock-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 99999;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+    background: rgba(16, 42, 36, 0.55);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    animation: fadeInLock 0.25s ease-out;
+  }
+  .app-lock-modal {
+    width: 100%;
+    max-width: 440px;
+    background: var(--paper, #ffffff);
+    border: 1px solid var(--line, #d1d5db);
+    border-radius: 16px;
+    padding: 28px 24px;
+    box-shadow: 0 20px 40px rgba(0, 0, 0, 0.35);
+    text-align: center;
+  }
+  .app-lock-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 58px;
+    height: 58px;
+    background: var(--green-pale, #eaf5f0);
+    color: var(--green-dark, #0e5b3f);
+    border-radius: 50%;
+    font-size: 26px;
+    margin-bottom: 14px;
+  }
+  .app-lock-title {
+    margin: 0 0 6px;
+    font-size: 18px;
+    font-weight: 800;
+    color: var(--ink, #111827);
+  }
+  .app-lock-subtitle {
+    margin: 0 0 20px;
+    font-size: 13px;
+    color: var(--muted, #6b7280);
+    line-height: 1.45;
+  }
+  .app-lock-form {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+  }
+  .app-lock-input-wrap {
+    position: relative;
+    width: 100%;
+  }
+  .app-lock-input {
+    width: 100%;
+    min-height: 44px;
+    padding: 10px 44px 10px 14px;
+    font-size: 15px;
+    border: 1.5px solid var(--line, #cbd5e1);
+    border-radius: 10px;
+    background: var(--paper-elevated, #fff);
+    color: var(--ink, #111827);
+    outline: none;
+    transition: border-color 0.2s, box-shadow 0.2s;
+  }
+  .app-lock-input:focus {
+    border-color: var(--green, #176b4b);
+    box-shadow: 0 0 0 3px rgba(23, 107, 75, 0.15);
+  }
+  .app-lock-input-wrap .password-toggle {
+    position: absolute;
+    right: 8px;
+    top: 50%;
+    transform: translateY(-50%);
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    font-size: 16px;
+    padding: 6px;
+    color: var(--muted, #64748b);
+  }
+  .app-lock-button {
+    min-height: 44px;
+    font-size: 14.5px;
+    font-weight: 700;
+    width: 100%;
+    border-radius: 10px;
+  }
+  .app-lock-error {
+    margin-top: 6px;
+    font-size: 12.5px;
+    color: var(--red, #dc2626);
+    font-weight: 600;
+  }
+  @keyframes fadeInLock {
+    from { opacity: 0; transform: scale(0.98); }
+    to { opacity: 1; transform: scale(1); }
+  }
   .settings-gate-description { margin: 4px 0 14px; font-size: 13px; color: var(--muted); line-height: 1.45; }
   .settings-gate-label { display: block; margin: 0 0 6px; font-size: 12px; font-weight: 600; color: var(--ink-secondary); }
   .settings-gate-row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }

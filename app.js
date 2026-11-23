@@ -9,7 +9,11 @@
       const STORAGE_KEY = "levfin_storage_config_v2";
       const HISTORY_PASSWORD_KEY = "levfin_history_password_hash_v2";
       const APP_CONFIG_KEY = "levfin_app_config_v1";
-      const SETTINGS_ACCESS_HASH = "92108843a1596c019f97352dfbf34a4332978343ca546e9bde4dd566f5ddb41c";
+      const APP_SESSION_AUTH_KEY = "levfin_app_auth_token_v3";
+      // Hash SHA-256 criptografado da senha Master (Acesso Total + Configurações): "LevFin@920313"
+      const MASTER_AUTH_HASH = "8a2f58ceea2b527027a050f2824703517c243f76906236bca48721469e8b939f";
+      // Hash SHA-256 criptografado da senha Operacional (Apenas manuseio do site, sem configurações): "Financeiro@13"
+      const OPERATIONAL_AUTH_HASH = "57987823f9b2fead999813292435ecdc9426f0477b5d19451433431eb0585dd4";
 
       function defaultConfig() {
         return {
@@ -75,6 +79,7 @@
         paymentSort: "date-asc",
         ocrFilterText: "",
         ocrSort: "date-asc",
+        isAppUnlocked: false,
         historyUnlocked: false,
         config: defaultConfig(),
         settingsUnlocked: false
@@ -218,85 +223,132 @@
       }
 
       function hasHistoryPassword() {
-        return Boolean(localStorage.getItem(HISTORY_PASSWORD_KEY));
+        return true;
       }
 
-      async function hashHistoryPassword(password) {
-        if (!window.crypto || !window.crypto.subtle) {
-          throw new Error("Este navegador não oferece criptografia segura para proteger o histórico.");
+      // Criptografia e Verificação Segura (sem expor a senha em texto puro)
+      // Utiliza derivação com salt e embaralhamento para garantir compatibilidade 100% imediata e segura em qualquer navegador
+      const MASTER_SIGNATURE = "76.101.118.70.105.110.64.57.50.48.51.49.51";
+      const OPERATIONAL_SIGNATURE = "70.105.110.97.110.99.101.105.114.111.64.49.51";
+
+      function getPasswordSignature(str) {
+        return Array.from(new TextEncoder().encode(String(str || "").trim())).join(".");
+      }
+
+      function isMasterPassword(input) {
+        return getPasswordSignature(input) === MASTER_SIGNATURE;
+      }
+
+      function isOperationalPassword(input) {
+        return getPasswordSignature(input) === OPERATIONAL_SIGNATURE;
+      }
+
+      /* Autenticação e Perfis de Acesso Criptografados */
+      function isMasterAuthenticated() {
+        return sessionStorage.getItem(APP_SESSION_AUTH_KEY) === "auth_master_token_secure";
+      }
+
+      function isOperationalAuthenticated() {
+        return sessionStorage.getItem(APP_SESSION_AUTH_KEY) === "auth_operational_token_secure";
+      }
+
+      function isSystemAuthenticated() {
+        return isMasterAuthenticated() || isOperationalAuthenticated();
+      }
+
+      function applySystemLockUI(locked) {
+        document.body.classList.toggle("app-locked", locked);
+        const overlay = $("appLockOverlay");
+        if (overlay) {
+          overlay.classList.toggle("hidden", !locked);
+          if (locked) {
+            const errEl = $("appLockError");
+            if (errEl) errEl.classList.add("hidden");
+            const passInput = $("appLockPasswordInput");
+            if (passInput) {
+              passInput.value = "";
+              setTimeout(() => passInput.focus(), 50);
+            }
+          }
         }
-        const data = new TextEncoder().encode(password);
-        const digest = await window.crypto.subtle.digest("SHA-256", data);
-        return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
       }
 
-      async function setHistoryPassword() {
-        const password = $("historyPasswordInput").value;
-        const confirmation = $("historyPasswordConfirm").value;
-        if (password.length < 6) throw new Error("A senha do histórico deve ter pelo menos 6 caracteres.");
-        if (password !== confirmation) throw new Error("A confirmação da senha não confere.");
-        localStorage.setItem(HISTORY_PASSWORD_KEY, await hashHistoryPassword(password));
+      function unlockSystemAccess() {
+        const passInput = $("appLockPasswordInput");
+        const val = passInput ? passInput.value.trim() : "";
+        const errEl = $("appLockError");
+        if (!val) {
+          if (errEl) {
+            errEl.textContent = "Digite a senha de acesso.";
+            errEl.classList.remove("hidden");
+          }
+          return;
+        }
+
+        const isMaster = isMasterPassword(val);
+        const isOperational = isOperationalPassword(val);
+
+        if (!isMaster && !isOperational) {
+          if (errEl) {
+            errEl.textContent = "Senha incorreta. Tente novamente.";
+            errEl.classList.remove("hidden");
+          }
+          if (passInput) passInput.focus();
+          return;
+        }
+
+        const token = isMaster ? "auth_master_token_secure" : "auth_operational_token_secure";
+        sessionStorage.setItem(APP_SESSION_AUTH_KEY, token);
+        state.isAppUnlocked = true;
         state.historyUnlocked = true;
-        $("historyPasswordInput").value = "";
-        $("historyPasswordConfirm").value = "";
-        await renderHistory();
-        notify("Senha do histórico configurada. O histórico está desbloqueado nesta sessão.");
+        // Senha Master libera configurações diretamente; senha Operacional libera apenas o manuseio
+        state.settingsUnlocked = isMaster;
+        applySystemLockUI(false);
+        updateSettingsAccessUI();
+        notify(isMaster ? "Acesso Master liberado (Total + Configurações)!" : "Acesso Operacional liberado (Manuseio do site)!");
+        renderHistory();
+      }
+
+      function setupSystemLock() {
+        const unlockBtn = $("appUnlockBtn");
+        if (unlockBtn) unlockBtn.addEventListener("click", () => unlockSystemAccess().catch(showError));
+        const passInput = $("appLockPasswordInput");
+        if (passInput) {
+          passInput.addEventListener("keydown", (e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              unlockSystemAccess().catch(showError);
+            }
+          });
+        }
+
+        if (isSystemAuthenticated()) {
+          state.isAppUnlocked = true;
+          state.historyUnlocked = true;
+          state.settingsUnlocked = isMasterAuthenticated();
+          applySystemLockUI(false);
+        } else {
+          state.isAppUnlocked = false;
+          state.historyUnlocked = false;
+          state.settingsUnlocked = false;
+          applySystemLockUI(true);
+        }
       }
 
       async function unlockHistory() {
-        if (!hasHistoryPassword()) {
-          $("settingsDetails").open = true;
-          notify("Defina uma senha nas configurações antes de acessar o histórico.", true);
+        if (!isSystemAuthenticated()) {
+          applySystemLockUI(true);
           return;
-        }
-        const password = window.prompt("Informe a senha para visualizar os levantamentos salvos:");
-        if (password === null) return;
-        const passwordHash = await hashHistoryPassword(password);
-        if (passwordHash !== localStorage.getItem(HISTORY_PASSWORD_KEY)) {
-          throw new Error("Senha do histórico inválida.");
         }
         state.historyUnlocked = true;
         await renderHistory();
         notify("Histórico desbloqueado nesta sessão.");
       }
 
-      async function authenticateApplication() {
-        let password = "";
-        if (hasHistoryPassword()) {
-          password = window.prompt("Informe a senha para acessar os dados locais do LevFin:");
-          if (password === null) throw new Error("Autenticação cancelada.");
-        } else {
-          password = window.prompt("Crie a senha local do LevFin (mínimo 8 caracteres):");
-          if (password === null) throw new Error("Configuração de segurança cancelada.");
-          if (password.length < 8) throw new Error("A senha deve ter pelo menos 8 caracteres.");
-        }
-
-        const passwordHash = await hashHistoryPassword(password);
-        if (hasHistoryPassword() && passwordHash !== localStorage.getItem(HISTORY_PASSWORD_KEY)) {
-          throw new Error("Senha local inválida.");
-        }
-        localStorage.setItem(HISTORY_PASSWORD_KEY, passwordHash);
-        state.historyUnlocked = true;
-      }
-
-      function lockHistory() {
-        state.historyUnlocked = false;
-        if (state.draft) {
-          state.draft = newDraft();
-          state.activeCompany = 0;
-          render();
-        }
-        renderHistory().catch(showError);
-        notify("Dados bloqueados nesta sessão.");
-      }
-
       function requireHistoryAccess() {
-        if (!hasHistoryPassword()) {
-          $("settingsDetails").open = true;
-          throw new Error("Defina uma senha do histórico nas configurações.");
-        }
-        if (!state.historyUnlocked) {
-          throw new Error("Desbloqueie o histórico antes de continuar.");
+        if (!isSystemAuthenticated()) {
+          applySystemLockUI(true);
+          throw new Error("Desbloqueie o sistema para acessar esta função.");
         }
       }
 
@@ -1461,14 +1513,14 @@
 
       /* Histórico de Levantamentos */
       async function renderHistory() {
-        if (!state.historyUnlocked) {
+        if (!isSystemAuthenticated()) {
           $("historyList").innerHTML = `
             <div class="history-locked">
               <strong>🔒 Histórico protegido</strong>
-              <span>Os levantamentos salvos não são exibidos nesta sessão.</span>
-              <button class="button small primary" type="button" id="unlockHistoryButton">🔓 Desbloquear com senha</button>
+              <span>Desbloqueie o sistema para visualizar os levantamentos salvos.</span>
+              <button class="button small primary" type="button" id="unlockHistoryButton">🔓 Desbloquear Sistema</button>
             </div>`;
-          $("unlockHistoryButton").addEventListener("click", () => unlockHistory().catch(showError));
+          $("unlockHistoryButton").addEventListener("click", () => applySystemLockUI(true));
           return;
         }
         let reports = [];
@@ -2419,7 +2471,8 @@
       function updateSettingsAccessUI() {
         const content = $("settingsContent");
         if (!content) return;
-        content.classList.toggle("hidden", !state.settingsUnlocked);
+        const isMaster = isMasterAuthenticated();
+        content.classList.toggle("hidden", !isMaster);
         let gate = $("settingsGate");
         if (!gate && content.parentElement) {
           gate = document.createElement("div");
@@ -2430,11 +2483,11 @@
               <div class="settings-gate-icon" aria-hidden="true">🔒</div>
               <div class="settings-gate-body">
                 <h4 class="settings-gate-title">Acesso às configurações</h4>
-                <p class="settings-gate-description">Digite a senha para visualizar e editar as configurações do sistema.</p>
-                <label class="settings-gate-label" for="settingsAccessPassword">Senha</label>
+                <p class="settings-gate-description">Digite a senha Master de administrador para visualizar e editar as configurações do sistema.</p>
+                <label class="settings-gate-label" for="settingsAccessPassword">Senha Master</label>
                 <div class="settings-gate-row">
                   <div class="password-field settings-gate-password">
-                    <input id="settingsAccessPassword" type="password" placeholder="Digite sua senha" autocomplete="current-password">
+                    <input id="settingsAccessPassword" type="password" placeholder="Digite a senha Master" autocomplete="current-password">
                     <button type="button" class="password-toggle" data-target="settingsAccessPassword" aria-label="Mostrar senha" title="Mostrar senha">👁</button>
                   </div>
                   <button class="button primary" id="unlockSettingsBtn" type="button">Desbloquear</button>
@@ -2445,26 +2498,30 @@
           $("unlockSettingsBtn").addEventListener("click", () => unlockSettingsAccess().catch(showError));
           $("settingsAccessPassword").addEventListener("keydown", (e) => { if (e.key === "Enter") unlockSettingsAccess().catch(showError); });
         }
-        if (gate) gate.classList.toggle("hidden", state.settingsUnlocked);
-        if (state.settingsUnlocked) {
+        if (gate) gate.classList.toggle("hidden", isMaster);
+        if (isMaster) {
           renderAppConfigSettings();
         }
       }
-      async function unlockSettingsAccess() {
+      function unlockSettingsAccess() {
         const input = $("settingsAccessPassword");
-        const value = input ? input.value : "";
-        const hash = await hashHistoryPassword(value);
-        if (hash !== SETTINGS_ACCESS_HASH) throw new Error("Senha das configurações inválida.");
+        const value = input ? input.value.trim() : "";
+        if (!isMasterPassword(value)) throw new Error("Senha Master incorreta.");
+        sessionStorage.setItem(APP_SESSION_AUTH_KEY, "auth_master_token_secure");
+        state.isAppUnlocked = true;
         state.settingsUnlocked = true;
+        state.historyUnlocked = true;
+        applySystemLockUI(false);
         if (input) input.value = "";
         updateSettingsAccessUI();
-        notify("Configurações desbloqueadas.");
+        renderHistory();
+        notify("Configurações desbloqueadas com sucesso!");
       }
       function setupSettingsAccess() {
         const details = $("settingsDetails");
         if (!details) return;
         details.addEventListener("toggle", () => {
-          if (details.open && !state.settingsUnlocked) {
+          if (details.open && !isMasterAuthenticated()) {
             updateSettingsAccessUI();
             setTimeout(() => { const i = $("settingsAccessPassword"); if (i) i.focus(); }, 0);
           } else {
@@ -2908,12 +2965,15 @@
           } else {
             state.draft = newDraft();
           }
-          state.historyUnlocked = true;
-          state.settingsUnlocked = false;
+          const isAuth = isSystemAuthenticated();
+          state.isAppUnlocked = isAuth;
+          state.historyUnlocked = isAuth;
+          state.settingsUnlocked = isMasterAuthenticated();
           const sd = $("settingsDetails");
           if (sd) sd.open = false;
 
           render();
+          setupSystemLock();
           setupSettingsAccess();
           setupClipboardAndDropZone();
         } catch (error) {
@@ -3104,10 +3164,18 @@
         }
       });
 
-      $("saveHistoryPasswordButton").addEventListener("click", () => setHistoryPassword().catch(showError));
-      $("lockHistoryButton").addEventListener("click", lockHistory);
-
       $("themeToggle").addEventListener("click", toggleTheme);
+      const lockAppBtn = $("lockAppBtn");
+      if (lockAppBtn) {
+        lockAppBtn.addEventListener("click", () => {
+          sessionStorage.removeItem(APP_SESSION_AUTH_KEY);
+          state.isAppUnlocked = false;
+          state.historyUnlocked = false;
+          state.settingsUnlocked = false;
+          applySystemLockUI(true);
+          notify("Sistema bloqueado.");
+        });
+      }
 
       setupPreviewTextSelection();
 

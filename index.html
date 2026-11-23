@@ -21,6 +21,7 @@
       <div class="topbar-right">
         <div class="autosave-pill" id="autoSaveIndicator">⚡ Rascunho salvo</div>
         <button class="button small icon-only" id="themeToggle" type="button" title="Alternar Modo Escuro / Claro">🌓</button>
+        <button class="button small icon-only" id="lockAppBtn" type="button" title="Bloquear Sistema">🔒</button>
       </div>
     </header>
 
@@ -302,26 +303,26 @@
           <input class="hidden" id="backupImportInput" type="file" accept=".json">
           <button class="button small" id="backupImportBtn" type="button">⬆️ Restaurar Backup JSON</button>
         </div>
-
-        <hr style="border: none; border-top: 1px solid var(--line); margin: 24px 0;">
-
-        <h4 style="margin: 0 0 10px 0; font-size: 14px;">🔒 Senha do histórico</h4>
-        <p style="margin: 0 0 14px 0; font-size: 12px; color: var(--muted);">A senha bloqueia a visualização dos levantamentos salvos após recarregar a página. Ela é armazenada apenas como hash neste navegador.</p>
-        <div class="history-password-fields">
-          <div class="password-field">
-            <input id="historyPasswordInput" type="password" autocomplete="new-password" placeholder="Nova senha (mínimo 6 caracteres)">
-            <button type="button" class="password-toggle" data-target="historyPasswordInput" aria-label="Mostrar senha" title="Mostrar senha">👁</button>
-          </div>
-          <div class="password-field">
-            <input id="historyPasswordConfirm" type="password" autocomplete="new-password" placeholder="Confirmar nova senha">
-            <button type="button" class="password-toggle" data-target="historyPasswordConfirm" aria-label="Mostrar senha" title="Mostrar senha">👁</button>
-          </div>
-          <button class="button small primary" id="saveHistoryPasswordButton" type="button">Definir / Alterar Senha</button>
-          <button class="button small" id="lockHistoryButton" type="button">🔒 Bloquear Histórico</button>
-        </div>
       </div>
     </details>
   </main>
+
+  <!-- Overlay de Proteção e Acesso Global -->
+  <div class="app-lock-overlay hidden" id="appLockOverlay" role="dialog" aria-modal="true" aria-labelledby="appLockTitle">
+    <div class="app-lock-modal">
+      <div class="app-lock-icon">🔒</div>
+      <h2 class="app-lock-title" id="appLockTitle">Acesso Protegido — LevFin</h2>
+      <p class="app-lock-subtitle">Digite a senha de segurança para desbloquear o manuseio do sistema e das configurações.</p>
+      <form class="app-lock-form" id="appLockForm" onsubmit="return false;">
+        <div class="app-lock-input-wrap">
+          <input class="app-lock-input" id="appLockPasswordInput" type="password" placeholder="Digite sua senha de acesso" autocomplete="current-password" autofocus>
+          <button type="button" class="password-toggle" data-target="appLockPasswordInput" aria-label="Mostrar senha" title="Mostrar senha">👁</button>
+        </div>
+        <div class="app-lock-error hidden" id="appLockError"></div>
+        <button class="button primary app-lock-button" id="appUnlockBtn" type="button">Desbloquear Sistema</button>
+      </form>
+    </div>
+  </div>
 
   <footer class="app-footer">Criado por Thiago de Freitas (contato: <a href="mailto:tfasilva92@gmail.com">tfasilva92@gmail.com</a>)</footer>
 
