@@ -10,6 +10,8 @@
       const HISTORY_PASSWORD_KEY = "levfin_history_password_hash_v2";
       const APP_CONFIG_KEY = "levfin_app_config_v1";
       const APP_SESSION_AUTH_KEY = "levfin_app_auth_token_v3";
+      const HISTORY_KEY = "levfin_history_v1";
+      const SETTINGS_COMPANY_KEY = "levfin_company_names_v1";
       // Hash SHA-256 criptografado da senha Master (Acesso Total + Configurações): "LevFin@920313"
       const MASTER_AUTH_HASH = "8a2f58ceea2b527027a050f2824703517c243f76906236bca48721469e8b939f";
       // Hash SHA-256 criptografado da senha Operacional (Apenas manuseio do site, sem configurações): "Financeiro@13"
@@ -62,6 +64,38 @@
       }
 
       const $ = (id) => document.getElementById(id);
+
+      /* Persistência em localStorage (substitui o IndexedDB) */
+      function readSettingsStore() {
+        try {
+          const raw = JSON.parse(localStorage.getItem("levfin_settings_v1") || "{}");
+          return raw && typeof raw === "object" ? raw : {};
+        } catch (_) {
+          return {};
+        }
+      }
+      function writeSettingsStore(store) {
+        localStorage.setItem("levfin_settings_v1", JSON.stringify(store || {}));
+      }
+      function getSetting(key) {
+        return readSettingsStore()[key];
+      }
+      function setSetting(key, value) {
+        const store = readSettingsStore();
+        store[key] = value;
+        writeSettingsStore(store);
+      }
+      function readHistoryReports() {
+        try {
+          const list = JSON.parse(localStorage.getItem(HISTORY_KEY) || "[]");
+          return Array.isArray(list) ? list : [];
+        } catch (_) {
+          return [];
+        }
+      }
+      function writeHistoryReports(list) {
+        localStorage.setItem(HISTORY_KEY, JSON.stringify(Array.isArray(list) ? list : []));
+      }
 
       const state = {
         companies: [],
@@ -208,7 +242,7 @@
         }
       }
 
-      function unlockSystemAccess() {
+      async function unlockSystemAccess() {
         const passInput = $("appLockPasswordInput");
         const val = passInput ? passInput.value.trim() : "";
         const errEl = $("appLockError");
@@ -1477,7 +1511,7 @@
       }
 
       /* Histórico de Levantamentos */
-      function renderHistory() {
+      async function renderHistory() {
         if (!isSystemAuthenticated()) {
           $("historyList").innerHTML = `
             <div class="history-locked">
@@ -1488,10 +1522,7 @@
           $("unlockHistoryButton").addEventListener("click", () => applySystemLockUI(true));
           return;
         }
-        const HIST_KEY = "levfin_history_v1";
-        let reports = [];
-        try { reports = JSON.parse(localStorage.getItem(HIST_KEY) || "[]"); } catch (_) {}
-        if (!Array.isArray(reports)) reports = [];
+        const reports = readHistoryReports();
         reports.sort((a, b) => String(b.savedAt).localeCompare(String(a.savedAt)));
 
         $("historyList").innerHTML = reports.length ? reports.map((report) => {
@@ -1543,26 +1574,24 @@
         }
       }
 
-      function saveReport(silent = false) {
+      async function saveReport(silent = false) {
         readMetadata();
         try { validateDraft(); } catch (e) { if (!silent) showError(e); return; }
         const record = JSON.parse(JSON.stringify(state.draft));
         record.savedAt = new Date().toISOString();
         delete record._storage;
         // Histórico em localStorage
-        const HIST_KEY = "levfin_history_v1";
-        let history = [];
-        try { history = JSON.parse(localStorage.getItem(HIST_KEY) || "[]"); } catch (_) {}
-        if (!Array.isArray(history)) history = [];
-        const existingIdx = state.draft.id !== null ? history.findIndex(r => r.id === state.draft.id) : -1;
+        const history = readHistoryReports();
+        const existingIdx = state.draft.id !== null && state.draft.id !== undefined ? history.findIndex((r) => String(r.id) === String(state.draft.id)) : -1;
         if (existingIdx >= 0) {
+          record.id = history[existingIdx].id;
           history[existingIdx] = record;
         } else {
           record.id = Date.now();
           history.unshift(record);
           state.draft.id = record.id;
         }
-        localStorage.setItem(HIST_KEY, JSON.stringify(history));
+        writeHistoryReports(history);
         $("saveReportButton").textContent = "💾 Atualizar Levantamento";
         if (!silent) notify("Levantamento salvo com sucesso.");
         renderHistory();
@@ -1805,7 +1834,7 @@
 
       async function loadReport(id, storage = "local") {
         requireHistoryAccess();
-        const report = await storeRequest("reports", "readonly", (store) => store.get(id));
+        const report = readHistoryReports().find((r) => String(r.id) === String(id));
         if (!report) throw new Error("Levantamento não encontrado.");
         report._storage = "local";
         report.companies.forEach((company, index) => {
@@ -1825,9 +1854,9 @@
       async function deleteReport(id, storage = "local") {
         requireHistoryAccess();
         if (!window.confirm("Deseja realmente excluir este levantamento salvo? Esta ação não pode ser desfeita.")) return;
-        await storeRequest("reports", "readwrite", (store) => store.delete(id));
-        if (state.draft.id === id && state.draft._storage === "local") { state.draft.id = null; state.draft._storage = null; $("saveReportButton").textContent = "💾 Salvar Levantamento"; }
-        await renderHistory(); notify("Levantamento excluído com sucesso.");
+        writeHistoryReports(readHistoryReports().filter((r) => String(r.id) !== String(id)));
+        if (String(state.draft.id) === String(id) && state.draft._storage === "local") { state.draft.id = null; state.draft._storage = null; $("saveReportButton").textContent = "💾 Salvar Levantamento"; }
+        renderHistory(); notify("Levantamento excluído com sucesso.");
       }
 
       /* Utilitários de Dias Úteis */
@@ -2462,7 +2491,7 @@
           renderAppConfigSettings();
         }
       }
-      function unlockSettingsAccess() {
+      async function unlockSettingsAccess() {
         const input = $("settingsAccessPassword");
         const value = input ? input.value.trim() : "";
         if (!isMasterPassword(value)) throw new Error("Senha Master incorreta.");
@@ -2596,7 +2625,7 @@
       async function saveAppConfig() {
         if (!state.settingsUnlocked) throw new Error("Desbloqueie as configurações para salvar.");
         state.config = readAppConfigFromUI();
-        await storeRequest("settings", "readwrite", (store) => store.put({ key: APP_CONFIG_KEY, value: state.config }));
+        setSetting(APP_CONFIG_KEY, state.config);
         renderStatusFilterOptions();
         renderPayments();
         renderOverview();
@@ -2608,7 +2637,7 @@
         if (!state.settingsUnlocked) throw new Error("Desbloqueie as configurações para restaurar.");
         if (!window.confirm("Restaurar situações e métodos para o padrão?")) return;
         state.config = defaultConfig();
-        await storeRequest("settings", "readwrite", (store) => store.put({ key: APP_CONFIG_KEY, value: state.config }));
+        setSetting(APP_CONFIG_KEY, state.config);
         renderStatusFilterOptions();
         renderPayments();
         renderOverview();
@@ -2693,7 +2722,7 @@
             comp.bankName = entry.bankName;
           });
         }
-        await storeRequest("settings", "readwrite", (store) => store.put({ key: "companyNames", value: state.companies }));
+        setSetting("companyNames", state.companies);
         renderTabs();
         updateWhatsAppPreview();
         scheduleAutoSave();
@@ -2714,7 +2743,7 @@
         state.companies = [{ name: "", bankName: "" }];
         state.draft.companies.forEach((comp) => { comp.name = ""; comp.bankName = ""; });
         state.activeCompany = Math.min(state.activeCompany, Math.max(0, state.draft.companies.length - 1));
-        await storeRequest("settings", "readwrite", (store) => store.put({ key: "companyNames", value: state.companies }));
+        setSetting("companyNames", state.companies);
         renderCompanySettings();
         renderTabs();
         updateWhatsAppPreview();
@@ -2725,8 +2754,8 @@
       /* Backup e Restauração */
       async function exportBackup() {
         requireHistoryAccess();
-        const reports = await storeRequest("reports", "readonly", (store) => store.getAll());
-        const settings = await storeRequest("settings", "readonly", (store) => store.getAll());
+        const reports = readHistoryReports();
+        const settings = readSettingsStore();
         const backupData = {
           app: "LevFin",
           version: "2.2",
@@ -2759,18 +2788,22 @@
             return;
           }
 
+          const existing = readHistoryReports();
+          const byId = new Map(existing.map((r) => [String(r.id), r]));
           for (const report of data.reports) {
-            await storeRequest("reports", "readwrite", (store) => store.put(report));
+            if (report && report.id !== undefined && report.id !== null) byId.set(String(report.id), report);
+            else byId.set(`import_${byId.size}_${Date.now()}`, report);
           }
+          writeHistoryReports([...byId.values()]);
           if (Array.isArray(data.companies) && data.companies.length > 0) {
             state.companies = data.companies.map((item) => item && typeof item === "object"
               ? { name: typeof item.name === "string" ? item.name : "", bankName: typeof item.bankName === "string" ? item.bankName : (typeof item.bank === "string" ? item.bank : "") }
               : { name: typeof item === "string" ? item : "", bankName: "" });
-            await storeRequest("settings", "readwrite", (store) => store.put({ key: "companyNames", value: state.companies }));
+            setSetting("companyNames", state.companies);
           }
           if (data.config) {
             state.config = normalizeConfig(data.config);
-            await storeRequest("settings", "readwrite", (store) => store.put({ key: APP_CONFIG_KEY, value: state.config }));
+            setSetting(APP_CONFIG_KEY, state.config);
           }
           render();
           notify("Backup restaurado com sucesso!");
@@ -2905,12 +2938,10 @@
       async function initialize() {
         initTheme();
         try {
-          state.db = await openDatabase();
-
           let savedNames = [];
-          const savedSettings = await storeRequest("settings", "readonly", (store) => store.get("companyNames"));
-          if (savedSettings && Array.isArray(savedSettings.value)) {
-            savedNames = savedSettings.value;
+          const savedSettings = getSetting("companyNames");
+          if (Array.isArray(savedSettings)) {
+            savedNames = savedSettings;
           }
 
           state.companies = savedNames.length
@@ -2923,11 +2954,11 @@
             : [{ name: "", bankName: "" }];
 
           if (JSON.stringify(savedNames) !== JSON.stringify(state.companies)) {
-            await storeRequest("settings", "readwrite", (store) => store.put({ key: "companyNames", value: state.companies }));
+            setSetting("companyNames", state.companies);
           }
 
-          const savedAppConfig = await storeRequest("settings", "readonly", (store) => store.get(APP_CONFIG_KEY)).catch(() => null);
-          if (savedAppConfig && savedAppConfig.value) state.config = normalizeConfig(savedAppConfig.value);
+          const savedAppConfig = getSetting(APP_CONFIG_KEY);
+          if (savedAppConfig) state.config = normalizeConfig(savedAppConfig);
 
           const autoSaved = loadAutoSavedDraft();
           if (autoSaved) {
