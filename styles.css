@@ -1689,6 +1689,7 @@
   .status-chip.authorized { color: var(--blue); background: var(--blue-pale, rgba(59, 130, 246, .12)); }
   .status-chip.paid { color: var(--green); background: var(--green-pale, rgba(34, 197, 94, .12)); }
   .status-chip.pending { color: var(--amber); background: var(--amber-pale, rgba(245, 158, 11, .12)); }
+  .status-chip.queue { color: #b45309; background: rgba(245, 158, 11, .18); }
   .status-chip.confirmation { color: var(--indigo, #6366f1); background: rgba(99, 102, 241, .12); }
 
   .clickable-filter { cursor: pointer; }
@@ -1696,6 +1697,7 @@
 
   .status-subtotal { display: inline-flex; align-items: center; justify-content: center; gap: 6px; font-size: 12px; font-weight: 600; padding: 2px 6px; border-radius: 4px; text-align: center; }
   .status-subtotal.pending { color: var(--amber); background: var(--amber-pale, rgba(245, 158, 11, .10)); }
+  .status-subtotal.queue { color: #b45309; background: rgba(245, 158, 11, .16); }
   .status-subtotal.authorized { color: var(--blue); background: var(--blue-pale, rgba(59, 130, 246, .10)); }
   .status-subtotal.paid { color: var(--green); background: var(--green-pale, rgba(34, 197, 94, .10)); }
   .status-subtotal.confirmation { color: var(--indigo, #6366f1); background: rgba(99, 102, 241, .10); }
@@ -1718,6 +1720,7 @@
   .remittance-status-authorized { color: var(--blue); background: var(--blue-pale, rgba(59, 130, 246, .14)); border-color: rgba(59, 130, 246, .35); }
   .remittance-status-paid { color: var(--green); background: var(--green-pale, rgba(34, 197, 94, .14)); border-color: rgba(34, 197, 94, .35); }
   .remittance-status-pending { color: var(--amber); background: var(--amber-pale, rgba(245, 158, 11, .14)); border-color: rgba(245, 158, 11, .35); }
+  .remittance-status-queue { color: #b45309; background: rgba(245, 158, 11, .18); border-color: rgba(245, 158, 11, .45); }
   .remittance-status-confirmation { color: var(--indigo, #6366f1); background: rgba(99, 102, 241, .14); border-color: rgba(99, 102, 241, .35); }
 
   .config-list { display: grid; gap: 10px; }

@@ -2535,6 +2535,7 @@
         { id: "pending", label: "A Autorizar" },
         { id: "authorized", label: "Autorizado" },
         { id: "paid", label: "Pago" },
+        { id: "queue", label: "Fila de Envio" },
         { id: "confirmation", label: "Confirmação de Pagamento" }
       ];
       const REMITTANCE_ID_OPTIONS = [
@@ -2660,17 +2661,40 @@
       function addStatusConfig() {
         if (!state.settingsUnlocked) return;
         const used = new Set((state.config.statuses || []).map((s) => s.id));
-        const next = STATUS_ID_OPTIONS.find((o) => !used.has(o.id));
-        if (!next) return notify("Todas as situações disponíveis já foram adicionadas.", true);
-        state.config.statuses.push({ id: next.id, label: next.label, remittanceRequired: next.id === "pending" || next.id === "confirmation", countAs: next.id === "paid" ? "paid" : next.id === "authorized" ? "authorized" : "open" });
+        let next = STATUS_ID_OPTIONS.find((o) => !used.has(o.id));
+        if (!next) {
+          // Permite adicionar situações personalizadas infinitas sem bloquear
+          let counter = (state.config.statuses || []).length + 1;
+          while (used.has(`status_${counter}`)) counter++;
+          next = { id: `status_${counter}`, label: `Nova Situação ${counter}` };
+        }
+        const isPaid = next.id === "paid";
+        const isAuth = next.id === "authorized";
+        const defCountAs = isPaid ? "paid" : (isAuth ? "authorized" : "open");
+        const defRem = next.id === "pending" || next.id === "confirmation" || next.id === "queue";
+        const defLabel = next.id === "queue" ? "🟡 Fila de Envio" : next.label;
+        state.config.statuses.push({
+          id: next.id,
+          label: defLabel,
+          remittanceRequired: defRem,
+          countAs: defCountAs
+        });
         renderAppConfigSettings();
       }
       function addRemittanceConfig() {
         if (!state.settingsUnlocked) return;
         const used = new Set((state.config.remittanceMethods || []).map((m) => m.id));
-        const next = REMITTANCE_ID_OPTIONS.find((o) => !used.has(o.id));
-        if (!next) return notify("Todos os métodos disponíveis já foram adicionados.", true);
-        state.config.remittanceMethods.push({ id: next.id, label: next.label, requiresDate: next.id === "standard" || next.id === "pix" });
+        let next = REMITTANCE_ID_OPTIONS.find((o) => !used.has(o.id));
+        if (!next) {
+          let counter = (state.config.remittanceMethods || []).length + 1;
+          while (used.has(`method_${counter}`)) counter++;
+          next = { id: `method_${counter}`, label: `Novo Método ${counter}` };
+        }
+        state.config.remittanceMethods.push({
+          id: next.id,
+          label: next.label,
+          requiresDate: next.id === "standard" || next.id === "pix"
+        });
         renderAppConfigSettings();
       }
 
