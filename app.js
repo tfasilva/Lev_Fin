@@ -64,7 +64,6 @@
       const $ = (id) => document.getElementById(id);
 
       const state = {
-        db: null,
         companies: [],
         activeCompany: 0,
         draft: null,
@@ -146,66 +145,6 @@
         };
       }
 
-      /* Banco de Dados Local IndexedDB */
-      function openDatabase() {
-        return new Promise((resolve, reject) => {
-          if (!("indexedDB" in window)) {
-            reject(new Error("Este navegador não oferece suporte ao banco local IndexedDB."));
-            return;
-          }
-          const request = indexedDB.open(DB_NAME, DB_VERSION);
-          request.onupgradeneeded = (event) => {
-            const db = request.result;
-            const transaction = request.transaction;
-            if (db.objectStoreNames.contains("reports") && event.oldVersion < 2) {
-              const oldReports = transaction.objectStore("reports");
-              if (!oldReports.autoIncrement) {
-                const migrationStoreName = "reports_migration";
-                if (db.objectStoreNames.contains(migrationStoreName)) db.deleteObjectStore(migrationStoreName);
-                const migrationStore = db.createObjectStore(migrationStoreName, { keyPath: "migrationId", autoIncrement: true });
-                oldReports.getAll().onsuccess = (oldEvent) => {
-                  const records = oldEvent.target.result || [];
-                  records.forEach((record) => migrationStore.add({ record }));
-                  db.deleteObjectStore("reports");
-                  const reports = db.createObjectStore("reports", { keyPath: "id", autoIncrement: true });
-                  reports.createIndex("savedAt", "savedAt", { unique: false });
-                  migrationStore.getAll().onsuccess = (migrationEvent) => {
-                    (migrationEvent.target.result || []).forEach((item) => {
-                      const record = { ...item.record };
-                      delete record.id;
-                      reports.add(record);
-                    });
-                    db.deleteObjectStore(migrationStoreName);
-                  };
-                };
-              }
-            } else if (!db.objectStoreNames.contains("reports")) {
-              const reports = db.createObjectStore("reports", { keyPath: "id", autoIncrement: true });
-              reports.createIndex("savedAt", "savedAt", { unique: false });
-            }
-            if (!db.objectStoreNames.contains("settings")) {
-              db.createObjectStore("settings", { keyPath: "key" });
-            }
-          };
-          request.onsuccess = () => resolve(request.result);
-          request.onerror = () => reject(request.error || new Error("Não foi possível abrir o banco local."));
-          request.onblocked = () => reject(new Error("O banco local está bloqueado por outra aba. Feche outras abas e tente novamente."));
-        });
-      }
-
-      function storeRequest(storeName, mode, action) {
-        return new Promise((resolve, reject) => {
-          if (!state.db) {
-            reject(new Error("Banco de dados ainda não inicializado."));
-            return;
-          }
-          const transaction = state.db.transaction(storeName, mode);
-          const request = action(transaction.objectStore(storeName));
-          request.onsuccess = () => resolve(request.result);
-          request.onerror = () => reject(request.error || new Error("A operação no banco local falhou."));
-          transaction.onabort = () => reject(transaction.error || new Error("A transação foi cancelada."));
-        });
-      }
 
       /* Notificações Toast */
       function notify(message, error = false) {
@@ -220,10 +159,6 @@
       function showError(error) {
         console.error(error);
         notify(error instanceof Error ? error.message : "Ocorreu um erro inesperado.", true);
-      }
-
-      function hasHistoryPassword() {
-        return true;
       }
 
       // Criptografia e Verificação Segura (sem expor a senha em texto puro)
@@ -511,7 +446,15 @@
           .map((p) => p.dueDate)
           .filter((d) => /^\d{4}-\d{2}-\d{2}$/.test(d))
           .sort();
-        if (!validDates.length) return;
+        if (!validDates.length) {
+          company.startDate = "";
+          company.endDate = "";
+          if (state.draft && state.draft.companies[state.activeCompany] === company) {
+            $("startDate").value = "";
+            $("endDate").value = "";
+          }
+          return;
+        }
         const minDate = validDates[0];
         const maxDate = validDates[validDates.length - 1];
         company.startDate = minDate;
@@ -1161,6 +1104,10 @@
       function renderPayments() {
         const company = state.draft.companies[state.activeCompany];
         $("balanceInput").value = (company.balance !== undefined && company.balance !== null && company.balance !== "") ? formatCurrencyBR(company.balance) : "";
+        const balUpdatedEl = $("balanceUpdatedAt");
+        if (balUpdatedEl) {
+          balUpdatedEl.textContent = company.balanceUpdatedAt ? `Atualizado em ${company.balanceUpdatedAt}` : "Não atualizado";
+        }
         const companyPeriod = getCompanyPeriod(company);
         $("startDate").value = companyPeriod.startDate || "";
         $("endDate").value = companyPeriod.endDate || "";
@@ -1305,10 +1252,15 @@
         $("emptyPayments").classList.toggle("hidden", paymentsToRender.length > 0);
 
         $("paymentRows").querySelectorAll("[data-field]").forEach((input) => {
-          input.addEventListener("input", updatePaymentFromInput);
+          const field = input.dataset.field;
+          // dueDate só dispara no "change" (data completa) — evita atualização com data parcial como "1" para "14"
+          if (field !== "dueDate") {
+            input.addEventListener("input", updatePaymentFromInput);
+          }
           input.addEventListener("change", (event) => {
+            // Para dueDate valida formato ISO completo (AAAA-MM-DD) antes de processar
+            if (field === "dueDate" && !/^\d{4}-\d{2}-\d{2}$/.test(event.target.value)) return;
             updatePaymentFromInput(event);
-            const field = event.target.dataset.field;
             if (field === "dueDate" || field === "status" || field === "remittanceType" || field === "remittanceDate") {
               renderPayments();
               renderOverview();
@@ -1332,6 +1284,7 @@
           btn.addEventListener("click", () => {
             readActiveCompany();
             company.payments.splice(Number(btn.dataset.remove), 1);
+            autoAdjustCompanyPeriod(company);
             renderPayments();
             renderTabs();
             renderOverview();
@@ -1345,6 +1298,7 @@
             readActiveCompany();
             const source = company.payments[Number(btn.dataset.duplicate)];
             company.payments.push({ ...source });
+            autoAdjustCompanyPeriod(company);
             renderPayments();
             renderTabs();
             renderOverview();
@@ -1445,11 +1399,22 @@
         scheduleAutoSave();
       }
 
-      function readActiveCompany() {
+      function readActiveCompany(updateBalanceTimestamp = false) {
         const company = state.draft.companies[state.activeCompany];
         if (company) {
           const val = $("balanceInput").value;
           company.balance = val === "" ? 0 : (parsePaymentAmount(val) || 0);
+          if (updateBalanceTimestamp && val.trim() !== "") {
+            const now = new Date();
+            const day = String(now.getDate()).padStart(2, "0");
+            const month = String(now.getMonth() + 1).padStart(2, "0");
+            const year = now.getFullYear();
+            const hours = String(now.getHours()).padStart(2, "0");
+            const minutes = String(now.getMinutes()).padStart(2, "0");
+            company.balanceUpdatedAt = `${day}/${month}/${year} às ${hours}:${minutes}`;
+            const balUpdatedEl = $("balanceUpdatedAt");
+            if (balUpdatedEl) balUpdatedEl.textContent = `Atualizado em ${company.balanceUpdatedAt}`;
+          }
           // Período individual da empresa (lançamento individual)
           company.startDate = $("startDate").value;
           company.endDate = $("endDate").value;
@@ -1512,7 +1477,7 @@
       }
 
       /* Histórico de Levantamentos */
-      async function renderHistory() {
+      function renderHistory() {
         if (!isSystemAuthenticated()) {
           $("historyList").innerHTML = `
             <div class="history-locked">
@@ -1523,18 +1488,10 @@
           $("unlockHistoryButton").addEventListener("click", () => applySystemLockUI(true));
           return;
         }
+        const HIST_KEY = "levfin_history_v1";
         let reports = [];
-
-        // Busca os relatórios do banco local do navegador (IndexedDB)
-        try {
-          const localReports = await storeRequest("reports", "readonly", (store) => store.getAll());
-          if (Array.isArray(localReports)) {
-            reports = localReports;
-          }
-        } catch (err) {
-          console.warn("Falha ao buscar histórico local IndexedDB:", err);
-        }
-
+        try { reports = JSON.parse(localStorage.getItem(HIST_KEY) || "[]"); } catch (_) {}
+        if (!Array.isArray(reports)) reports = [];
         reports.sort((a, b) => String(b.savedAt).localeCompare(String(a.savedAt)));
 
         $("historyList").innerHTML = reports.length ? reports.map((report) => {
@@ -1586,28 +1543,29 @@
         }
       }
 
-      async function saveReport(silent = false) {
+      function saveReport(silent = false) {
         readMetadata();
-        if (silent) {
-          try { validateDraft(); } catch (_) { return; }
-        } else {
-          validateDraft();
-        }
+        try { validateDraft(); } catch (e) { if (!silent) showError(e); return; }
         const record = JSON.parse(JSON.stringify(state.draft));
-        record.savedAt = new Date().toISOString(); delete record._storage;
-        const existingLocalId = Number.isInteger(Number(state.draft.id)) && Number(state.draft.id) > 0
-          ? Number(state.draft.id)
-          : null;
-
-        if (existingLocalId) record.id = existingLocalId;
-        else delete record.id;
-
-        state.draft.id = Number(await storeRequest("reports", "readwrite", (store) => existingLocalId ? store.put(record) : store.add(record)));
-        state.draft._storage = "local";
-
+        record.savedAt = new Date().toISOString();
+        delete record._storage;
+        // Histórico em localStorage
+        const HIST_KEY = "levfin_history_v1";
+        let history = [];
+        try { history = JSON.parse(localStorage.getItem(HIST_KEY) || "[]"); } catch (_) {}
+        if (!Array.isArray(history)) history = [];
+        const existingIdx = state.draft.id !== null ? history.findIndex(r => r.id === state.draft.id) : -1;
+        if (existingIdx >= 0) {
+          history[existingIdx] = record;
+        } else {
+          record.id = Date.now();
+          history.unshift(record);
+          state.draft.id = record.id;
+        }
+        localStorage.setItem(HIST_KEY, JSON.stringify(history));
         $("saveReportButton").textContent = "💾 Atualizar Levantamento";
-        if (!silent) notify("Levantamento salvo com sucesso neste navegador.");
-        await renderHistory();
+        if (!silent) notify("Levantamento salvo com sucesso.");
+        renderHistory();
       }
 
       /* Salvamento Automático no Histórico (mesmo levantamento = sobrescreve; novo = cria) */
@@ -2448,6 +2406,7 @@
         if (!window.confirm(`Tem certeza que deseja apagar todos os lançamentos da empresa ${company.name}?`)) return;
         readActiveCompany();
         company.payments = [];
+        autoAdjustCompanyPeriod(company);
         renderPayments();
         renderTabs();
         renderOverview();
@@ -3009,7 +2968,7 @@
 
       /* Event Listeners */
       $("balanceInput").addEventListener("input", () => {
-        readActiveCompany();
+        readActiveCompany(true);
         if ($("companyTotals")) $("companyTotals").innerHTML = totalsMarkup(state.draft.companies[state.activeCompany]);
         renderOverview();
         renderTabs();
@@ -3017,7 +2976,7 @@
         scheduleAutoSave();
       });
       $("balanceInput").addEventListener("blur", () => {
-        readActiveCompany();
+        readActiveCompany(false);
         $("balanceInput").value = formatCurrencyBR(state.draft.companies[state.activeCompany].balance);
       });
 

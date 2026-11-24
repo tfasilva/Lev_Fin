@@ -107,8 +107,15 @@
 
       <div class="company-toolbar">
         <div class="balance-box">
-          <label for="balanceInput">💰 Saldo Inicial / Atual (R$):</label>
-          <input id="balanceInput" type="text" inputmode="decimal" placeholder="R$ 0,00">
+          <!-- label + timestamp empilhados em coluna -->
+          <div class="balance-label-group">
+            <label for="balanceInput">💰 Saldo Inicial / Atual (R$):</label>
+            <span class="balance-updated-at" id="balanceUpdatedAt" title="Data e hora da última atualização do saldo">--</span>
+          </div>
+          <!-- campo de entrada ao lado do grupo de label -->
+          <div class="balance-input-wrap">
+            <input id="balanceInput" type="text" inputmode="decimal" placeholder="R$ 0,00">
+          </div>
         </div>
         <div class="payment-filters">
           <span class="payment-filters-label">Filtros:</span>

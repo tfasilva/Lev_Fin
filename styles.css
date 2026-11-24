@@ -574,7 +574,25 @@
     .balance-box {
       display: flex;
       align-items: center;
-      gap: 10px;
+      gap: 12px;
+    }
+    .balance-label-group {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+    .balance-input-wrap {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .balance-updated-at {
+      display: block;
+      font-size: 10.5px;
+      color: var(--muted);
+      font-weight: 500;
+      white-space: nowrap;
+      margin-top: 2px;
     }
     .balance-box label {
       font-size: 12px;
